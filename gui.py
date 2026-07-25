@@ -16,9 +16,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = PROJECT_ROOT / "config.json"
 TRANSCRIBE = PROJECT_ROOT / "transcribe.py"
 PROGRESS_PREFIX = "__VIDEO2SRT_PROGRESS__ "
+MODELS_DIR = PROJECT_ROOT / "models"
 MODEL_PRESETS = {
-    "large-v2": r"C:\Users\550W\AppData\Local\Buzz\Buzz\Cache\models\models--Systran--faster-whisper-large-v2",
-    "large-v3": r"C:\Users\550W\AppData\Local\Buzz\Buzz\Cache\models\models--Systran--faster-whisper-large-v3",
+    "large-v2": str(MODELS_DIR / "large-v2"),
+    "large-v3": str(MODELS_DIR / "large-v3"),
 }
 CUSTOM_MODEL_LABEL = "自定义"
 

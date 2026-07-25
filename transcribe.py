@@ -14,7 +14,7 @@ r"""批量转录视频生成中文字幕 SRT。
     # 强制覆盖已有 srt
     .venv\Scripts\python.exe transcribe.py --force
 
-    # 本地写完后同步推送一份到云端(P盘视频同目录)
+    # 本地写完后同步推送一份到源视频同目录
     .venv\Scripts\python.exe transcribe.py --push-cloud
 
     # 只修复已有字幕的时间轴、换行和少量重复毛边，不重新转录
@@ -39,17 +39,27 @@ from faster_whisper import WhisperModel
 
 
 PROGRESS_PREFIX = "__VIDEO2SRT_PROGRESS__ "
-PROJECT_ROOT = Path(__file__).resolve().parent
-DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.json"
 
-DEFAULT_SRC_ROOT = Path(
-    r"P:\CloudMedia\Video\网课\03.【2027考研数学】张宇等启航专属班！"
-    r"\01.（七期）2027考研数学一、二、三\04.基础阶段\01.基础30讲-高数"
-)
-DEFAULT_MODEL_BASE = Path(
-    r"C:\Users\550W\AppData\Local\Buzz\Buzz\Cache\models"
-    r"\models--Systran--faster-whisper-large-v2"
-)
+
+def application_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+PROJECT_ROOT = application_root()
+DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.json"
+DEFAULT_EXAMPLE_CONFIG_PATH = PROJECT_ROOT / "config.example.json"
+MODEL_PRESETS = {
+    "large-v2": {
+        "repo_id": "Systran/faster-whisper-large-v2",
+        "path": PROJECT_ROOT / "models" / "large-v2",
+    },
+    "large-v3": {
+        "repo_id": "Systran/faster-whisper-large-v3",
+        "path": PROJECT_ROOT / "models" / "large-v3",
+    },
+}
 
 SENT_END_MARKS = set("。！？；!?;")
 SENT_PAUSE_MARKS = set("，、：,:")
@@ -65,20 +75,23 @@ _TS_RE = re.compile(
 
 @dataclass
 class AppConfig:
-    src_root: Path = DEFAULT_SRC_ROOT
-    dst_root: Path = PROJECT_ROOT
-    model_base: Path = DEFAULT_MODEL_BASE
+    src_root: Path | None = None
+    dst_root: Path = PROJECT_ROOT / "output"
+    model_preset: str = "large-v3"
+    model_base: Path = PROJECT_ROOT / "models" / "large-v3"
     log_file: Path = PROJECT_ROOT / "progress.log"
     cloud_failed: Path = PROJECT_ROOT / "cloud_failed.txt"
     cache_dir: Path = PROJECT_ROOT / ".cache" / "videos"
 
-    video_extensions: list[str] = field(default_factory=lambda: [".mp4"])
+    video_extensions: list[str] = field(
+        default_factory=lambda: [".mp4", ".mkv", ".mov", ".m4a", ".mp3", ".wav"]
+    )
     preserve_source_root_name: bool = True
     use_local_cache: bool = True
     delete_cache_after: bool = True
 
-    device: str = "cuda"
-    compute_type: str = "float16"
+    device: str = "auto"
+    compute_type: str = "default"
     language: str = "zh"
     task: str = "transcribe"
     beam_size: int = 5
@@ -93,10 +106,10 @@ class AppConfig:
     vad_min_silence_duration_ms: int = 420
     vad_speech_pad_ms: int = 200
 
-    max_sentence_duration: float = 5.5
+    max_sentence_duration: float = 4.8
     max_chars_per_line: int = 18
-    max_chars_per_sentence: int = 32
-    gap_threshold: float = 0.55
+    max_chars_per_sentence: int = 28
+    gap_threshold: float = 0.45
     min_caption_duration: float = 0.35
     min_caption_gap: float = 0.01
 
@@ -137,6 +150,8 @@ def normalize_config(cfg: AppConfig) -> AppConfig:
     cfg.video_extensions = [
         ext if ext.startswith(".") else f".{ext}" for ext in cfg.video_extensions
     ]
+    cfg.device = str(cfg.device or "auto").lower()
+    cfg.compute_type = str(cfg.compute_type or "default").lower()
     cfg.max_chars_per_line = max(8, int(cfg.max_chars_per_line))
     cfg.max_chars_per_sentence = max(
         cfg.max_chars_per_line, int(cfg.max_chars_per_sentence)
@@ -171,7 +186,11 @@ def load_config(path: Path) -> AppConfig:
         if key not in valid_keys:
             continue
         if key in PATH_FIELDS:
-            setattr(cfg, key, _resolve_path(value, base_dir))
+            raw = "" if value is None else str(value).strip()
+            if key == "src_root" and not raw:
+                setattr(cfg, key, None)
+            elif raw:
+                setattr(cfg, key, _resolve_path(raw, base_dir))
         else:
             setattr(cfg, key, value)
     return normalize_config(cfg)
@@ -179,6 +198,9 @@ def load_config(path: Path) -> AppConfig:
 
 def write_default_config(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if DEFAULT_EXAMPLE_CONFIG_PATH.exists():
+        shutil.copyfile(DEFAULT_EXAMPLE_CONFIG_PATH, path)
+        return
     cfg = normalize_config(AppConfig())
     path.write_text(
         json.dumps(config_to_dict(cfg), ensure_ascii=False, indent=2) + "\n",
@@ -269,19 +291,128 @@ def find_model_path(cfg: AppConfig) -> str:
 
     snapshots = cfg.model_base / "snapshots"
     if not snapshots.exists():
-        raise FileNotFoundError(f"模型 snapshots 目录不存在: {snapshots}")
+        raise FileNotFoundError(
+            f"模型不存在: {cfg.model_base}\n"
+            f"请先在 GUI 下载模型，或运行: "
+            f"python transcribe.py --download-model {cfg.model_preset}"
+        )
     for d in sorted(snapshots.iterdir()):
         if (d / "model.bin").exists() and (d / "config.json").exists():
             return str(d)
     raise FileNotFoundError(f"未在 {snapshots} 下找到完整模型")
 
 
-def build_model(cfg: AppConfig) -> WhisperModel:
-    return WhisperModel(
-        find_model_path(cfg),
-        device=cfg.device,
-        compute_type=cfg.compute_type,
+def model_target_dir(name: str, cfg: AppConfig) -> Path:
+    if name == cfg.model_preset:
+        return cfg.model_base
+    preset = MODEL_PRESETS.get(name)
+    if not preset:
+        raise ValueError(f"未知模型: {name}")
+    return Path(preset["path"])
+
+
+def download_model(name: str, cfg: AppConfig, progress_enabled: bool = False) -> Path:
+    preset = MODEL_PRESETS.get(name)
+    if not preset:
+        choices = ", ".join(MODEL_PRESETS)
+        raise ValueError(f"未知模型: {name}，可选: {choices}")
+
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError as e:
+        raise RuntimeError(
+            "缺少 huggingface_hub，请先运行: "
+            "python -m pip install -r requirements.txt"
+        ) from e
+
+    target = model_target_dir(name, cfg)
+    target.mkdir(parents=True, exist_ok=True)
+    emit_progress(
+        progress_enabled,
+        "model_download_start",
+        name=name,
+        repo_id=preset["repo_id"],
+        target=str(target),
     )
+    path = snapshot_download(
+        repo_id=str(preset["repo_id"]),
+        local_dir=str(target),
+    )
+    emit_progress(
+        progress_enabled,
+        "model_download_done",
+        name=name,
+        repo_id=preset["repo_id"],
+        target=str(path),
+    )
+    return Path(path)
+
+
+def cuda_device_count() -> int:
+    try:
+        import ctranslate2
+
+        return int(ctranslate2.get_cuda_device_count())
+    except Exception:
+        return 0
+
+
+def resolve_runtime(cfg: AppConfig) -> tuple[str, str, str]:
+    configured_device = str(cfg.device or "auto").lower()
+    configured_compute = str(cfg.compute_type or "default").lower()
+
+    if configured_device == "auto":
+        device = "cuda" if cuda_device_count() > 0 else "cpu"
+        reason = "auto"
+    elif configured_device in {"cuda", "cpu"}:
+        device = configured_device
+        reason = "configured"
+    else:
+        raise ValueError("device 只能是 auto / cuda / cpu")
+
+    if configured_compute == "default":
+        compute_type = "float16" if device == "cuda" else "int8"
+    else:
+        compute_type = configured_compute
+    return device, compute_type, reason
+
+
+def build_model(
+    cfg: AppConfig,
+    log: logging.Logger | None = None,
+    progress_enabled: bool = False,
+) -> WhisperModel:
+    model_path = find_model_path(cfg)
+    device, compute_type, reason = resolve_runtime(cfg)
+    if log:
+        log.info(f"运行设备: {device}  计算精度: {compute_type} ({reason})")
+    emit_progress(
+        progress_enabled,
+        "runtime",
+        device=device,
+        compute_type=compute_type,
+        reason=reason,
+    )
+
+    try:
+        return WhisperModel(
+            model_path,
+            device=device,
+            compute_type=compute_type,
+        )
+    except Exception as e:
+        if str(cfg.device or "auto").lower() != "auto" or device != "cuda":
+            raise
+        if log:
+            log.warning(f"CUDA 初始化失败，回落到 CPU int8: {e}")
+        emit_progress(
+            progress_enabled,
+            "runtime",
+            device="cpu",
+            compute_type="int8",
+            reason="cuda_fallback",
+        )
+        return WhisperModel(model_path, device="cpu", compute_type="int8")
 
 
 def emit_progress(enabled: bool, event: str, **payload) -> None:
@@ -688,9 +819,12 @@ def setup_logging(cfg: AppConfig):
 
 
 def find_videos(log, cfg: AppConfig, single: str | None = None, limit: int | None = None):
-    """扫描视频；P盘不可用时等待重试。"""
+    """扫描视频；源目录暂不可用时等待重试。"""
     if single:
         return [_resolve_path(single, Path.cwd())]
+    if cfg.src_root is None:
+        log.error("未设置视频根目录。请在配置文件或 GUI 中选择。")
+        return []
 
     for attempt in range(1, cfg.retry_times + 1):
         try:
@@ -707,37 +841,44 @@ def find_videos(log, cfg: AppConfig, single: str | None = None, limit: int | Non
                 videos = videos[:limit]
             return videos
         log.warning(
-            f"P盘暂无视频（WebDAV可能未恢复），{cfg.retry_wait}秒后重试 "
+            f"源目录暂无视频，{cfg.retry_wait}秒后重试 "
             f"{attempt}/{cfg.retry_times}"
         )
         time.sleep(cfg.retry_wait)
-    log.error(f"P盘等待 {cfg.retry_times} 次仍不可用，退出。")
+    log.error(f"源目录等待 {cfg.retry_times} 次仍不可用，退出。")
     return []
 
 
 def display_rel(v: Path, cfg: AppConfig) -> Path:
-    try:
-        return v.relative_to(cfg.src_root)
-    except ValueError:
-        return Path(v.name)
+    if cfg.src_root is not None:
+        try:
+            return v.relative_to(cfg.src_root)
+        except ValueError:
+            pass
+    return Path(v.name)
 
 
 def output_srt_path(v: Path, cfg: AppConfig) -> Path:
-    try:
-        rel = v.relative_to(cfg.src_root)
-        if cfg.preserve_source_root_name:
-            rel = Path(cfg.src_root.name) / rel
-    except ValueError:
-        rel = Path(v.name)
+    if cfg.src_root is not None:
+        try:
+            rel = v.relative_to(cfg.src_root)
+            if cfg.preserve_source_root_name:
+                rel = Path(cfg.src_root.name) / rel
+            return cfg.dst_root / rel.with_suffix(".srt")
+        except ValueError:
+            pass
+    rel = Path(v.name)
     return cfg.dst_root / rel.with_suffix(".srt")
 
 
 def _cache_relative_path(src: Path, cfg: AppConfig) -> Path:
-    try:
-        return src.relative_to(cfg.src_root)
-    except ValueError:
-        digest = hashlib.sha1(str(src).encode("utf-8")).hexdigest()[:12]
-        return Path(f"{digest}_{src.name}")
+    if cfg.src_root is not None:
+        try:
+            return src.relative_to(cfg.src_root)
+        except ValueError:
+            pass
+    digest = hashlib.sha1(str(src).encode("utf-8")).hexdigest()[:12]
+    return Path(f"{digest}_{src.name}")
 
 
 def materialize_video(src: Path, cfg: AppConfig, log) -> tuple[Path, Path | None]:
@@ -847,18 +988,28 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--push-cloud",
         action="store_true",
-        help="本地写完后同步推送一份到云端(P盘视频同目录)",
+        help="本地写完后同步推送一份到源视频同目录",
     )
     ap.add_argument("--repair-existing", action="store_true", help="修复已有 SRT")
     ap.add_argument("--repair-file", help="只修复一个 SRT 文件")
+    ap.add_argument(
+        "--download-model",
+        choices=sorted(MODEL_PRESETS),
+        help="下载 faster-whisper 模型到本地目录",
+    )
+    ap.add_argument(
+        "--list-models",
+        action="store_true",
+        help="列出可下载的模型",
+    )
     ap.add_argument("--emit-progress", action="store_true", help=argparse.SUPPRESS)
 
     ap.add_argument("--src-root", help="覆盖配置中的视频根目录")
     ap.add_argument("--dst-root", help="覆盖配置中的字幕输出根目录")
     ap.add_argument("--model-base", help="覆盖配置中的 faster-whisper 模型目录")
     ap.add_argument("--cache-dir", help="覆盖配置中的本地视频缓存目录")
-    ap.add_argument("--device", help="cuda / cpu")
-    ap.add_argument("--compute-type", help="float16 / int8 / float32 等")
+    ap.add_argument("--device", help="auto / cuda / cpu")
+    ap.add_argument("--compute-type", help="default / float16 / int8 / float32 等")
     ap.add_argument("--max-chars-per-line", type=int, help="字幕单行最大字数")
     ap.add_argument("--max-chars-per-sentence", type=int, help="单条字幕最大字数")
     ap.add_argument("--max-sentence-duration", type=float, help="单条字幕最大秒数")
@@ -887,6 +1038,16 @@ def main():
     log.info(f"使用配置: {cfg_path}")
     cfg.dst_root.mkdir(parents=True, exist_ok=True)
 
+    if args.list_models:
+        for name, preset in MODEL_PRESETS.items():
+            print(f"{name}\t{preset['repo_id']}\t{preset['path']}")
+        return
+
+    if args.download_model:
+        target = download_model(args.download_model, cfg, args.emit_progress)
+        log.info(f"模型下载完成: {target}")
+        return
+
     if args.repair_file:
         path = _resolve_path(args.repair_file, Path.cwd())
         count = repair_srt_file(path, cfg)
@@ -898,7 +1059,7 @@ def main():
         return
 
     if args.push_cloud:
-        log.info("已开启云端推送：每个视频完成后同步到 P 盘")
+        log.info("已开启云端推送：每个视频完成后同步到源视频同目录")
     if cfg.use_local_cache:
         log.info(f"已开启本地视频缓存: {cfg.cache_dir}")
 
@@ -906,7 +1067,7 @@ def main():
     if not videos:
         return
     log.info(f"共 {len(videos)} 个视频待处理。加载模型...")
-    model = build_model(cfg)
+    model = build_model(cfg, log, args.emit_progress)
     log.info("模型就绪。开始转录。")
 
     ok = fail = skip = pushed = 0

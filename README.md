@@ -1,67 +1,138 @@
 # Video2Srt
 
-批量把课程视频转成中文字幕 SRT。默认使用 `faster-whisper`，支持断点跳过、本地缓存转录、云端补推、已有字幕修复和 Tkinter 图形界面。
+本地批量转录视频并生成中文字幕 SRT 的 Windows 工具。后端使用
+`faster-whisper`，桌面端使用 Flutter Material 3。
 
-## 环境
+## 功能
+
+- 批量转录、单文件转录、已有 SRT 修复。
+- 直接下载 `large-v2` 与 `large-v3` 的 faster-whisper 模型。
+- 每个视频都有转录进度，日志以 UTF-8 输出。
+- 输出时保留视频根目录名，方便把字幕目录合并回原课程目录。
+- 支持本地视频缓存、失败重试、跳过已完成字幕和可选的源目录回写。
+- `device: auto` 会优先使用可用的 CUDA；没有 CUDA 或 CUDA 初始化失败时自动使用 CPU。
+
+## 快速开始
+
+需要 Windows、Python 3.10+。CUDA 不是必需条件。
 
 ```powershell
-.venv\Scripts\python.exe -m pip install -r requirements.txt
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item config.example.json config.json
 ```
 
-模型默认读取 Buzz 缓存里的 `Systran/faster-whisper-large-v2`，路径写在 `config.json` 的 `model_base`。
+编辑 `config.json`，至少设置 `src_root`。所有相对路径都相对于配置文件所在目录。
 
-## 命令行
+下载模型：
 
 ```powershell
-# 批量转录，跳过已有且格式可解析的 SRT
-.venv\Scripts\python.exe transcribe.py
+.\.venv\Scripts\python.exe transcribe.py --download-model large-v3
+```
 
-# 只处理一个视频
-.venv\Scripts\python.exe transcribe.py --file "P:\path\to\video.mp4"
+开始批量转录：
+
+```powershell
+.\.venv\Scripts\python.exe transcribe.py
+```
+
+常用命令：
+
+```powershell
+# 单文件
+.\.venv\Scripts\python.exe transcribe.py --file "D:\Videos\lesson.mp4"
 
 # 只处理前 3 个
-.venv\Scripts\python.exe transcribe.py --limit 3
+.\.venv\Scripts\python.exe transcribe.py --limit 3
 
 # 覆盖已有字幕
-.venv\Scripts\python.exe transcribe.py --force
+.\.venv\Scripts\python.exe transcribe.py --force
 
-# 转完后把 SRT 推回视频同目录
-.venv\Scripts\python.exe transcribe.py --push-cloud
+# 把完成的字幕同步到源视频所在目录
+.\.venv\Scripts\python.exe transcribe.py --push-cloud
 
-# 修复已有字幕的时间轴、重复片段和换行，不重新转录
-.venv\Scripts\python.exe transcribe.py --repair-existing
+# 只修复已有 SRT 的时间轴、重复片段和换行
+.\.venv\Scripts\python.exe transcribe.py --repair-existing
 ```
 
-## GUI
+## 桌面 GUI
+
+推荐使用新的 Flutter 桌面程序：
 
 ```powershell
-.venv\Scripts\python.exe gui.py
+Set-Location flutter_app
+flutter pub get
+flutter run -d windows
 ```
 
-GUI 可以选择视频根目录、字幕输出目录、模型版本、模型目录和缓存目录，也可以调节单行字数、单条字幕字数、单条字幕秒数、停顿断句阈值，并启动批量转录、单文件转录或修复已有字幕。运行时会显示当前视频的转录进度条。模型版本内置 `large-v2`、`large-v3` 和 `自定义`，选择 `large-v3` 会自动填入本机 Buzz 缓存中的 v3 路径。
+它会自动找到项目根目录下的 Python 后端。GUI 可以选择视频、输出、模型和缓存目录，管理模型下载，并调整硬件与断句参数。
+
+旧的 Tkinter GUI 仍可通过 `.\.venv\Scripts\python.exe gui.py` 启动，但不再是主界面。
+
+## CPU 与 CUDA
+
+默认配置使用：
+
+```json
+{
+  "device": "auto",
+  "compute_type": "default"
+}
+```
+
+- `auto`：检测到 CUDA 时使用 `cuda + float16`；否则使用 `cpu + int8`。
+- `cuda`：只使用 CUDA，适合已确认驱动和运行库正常的机器。
+- `cpu`：强制使用 CPU。`int8` 是大模型在 CPU 上更实用的默认精度。
+- CUDA 在自动模式下初始化失败时，后端会记录原因并自动回落到 CPU `int8`。
+
+CPU 可以正常运行，但 `large-v3` 对长视频会明显更慢；可按机器性能改用 `large-v2`。
 
 ## 配置
 
-主要配置在 `config.json`：
+`config.example.json` 是可提交的模板，实际使用的 `config.json` 不会进入 Git。
 
-- `src_root`: 视频根目录。
-- `dst_root`: 字幕输出根目录。
-- `preserve_source_root_name`: 默认 `true`，输出时保留视频根目录名，方便和原课程目录合并。
-- `use_local_cache`: 默认 `true`，先把视频复制到本地缓存再转录，减少 WebDAV/P 盘抖动影响。
-- `delete_cache_after`: 默认 `true`，转录完成后删除本地视频缓存。
-- `max_chars_per_line`: 单行最大字数，默认 `18`。
-- `max_chars_per_sentence`: 单条字幕最大字数，默认 `32`。
-- `max_sentence_duration`: 单条字幕最大秒数，默认 `5.5`。
-- `gap_threshold`: segment 间隔超过该秒数时视为自然停顿，默认 `0.55`。
+常用项：
 
-如需重新生成默认配置：
+- `src_root`：视频根目录，留空表示尚未选择。
+- `dst_root`：字幕输出目录，默认 `output`。
+- `model_base`：模型目录，默认 `models/large-v3`。
+- `preserve_source_root_name`：默认 `true`，保留源目录最外层名称。
+- `use_local_cache`：先复制视频到本地缓存后转录，适合网络盘或 WebDAV。
+- `max_chars_per_line`、`max_chars_per_sentence`、`max_sentence_duration`、`gap_threshold`：控制字幕长度和断句。
+
+重新生成模板配置：
 
 ```powershell
-.venv\Scripts\python.exe transcribe.py --write-default-config
+.\.venv\Scripts\python.exe transcribe.py --write-default-config
 ```
 
-## 输出与恢复
+## Windows 发布包
 
-写 SRT 时会先写 `.tmp` 文件，再原子替换到目标路径，避免中途失败留下半个字幕文件。已存在的 SRT 会先做基本格式解析，能解析才跳过；格式坏掉的文件会被重新生成。
+发布脚本会先构建 Flutter，再把后端放入 `dist\Video2Srt\backend`。模型默认不随包分发，用户可以在 GUI 的“模型”页下载。
 
-初始项目状态已经提交到 Git，基线提交为 `77dd00b`。
+默认会构建不依赖目标机器 Python 的发布包：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\scripts\build_windows.ps1
+```
+
+如需生成源码后端的便携包，可显式选择 `source` 模式；它会调用随包 runtime 或系统 Python：
+
+```powershell
+.\scripts\build_windows.ps1 -BackendMode source
+```
+
+也可以把一个可重定位的 Python runtime 目录放进源码后端包：
+
+```powershell
+.\scripts\build_windows.ps1 -RuntimePath "D:\runtime\python"
+```
+
+`-IncludeModels` 会把本地 `models` 目录一起复制到发布包；默认关闭，避免意外打入体积很大的模型文件。
+
+## Git 与隐私
+
+`.gitignore` 已排除本地配置、日志、缓存、模型、输出字幕和发布产物。不要提交真实视频、模型或生成的 SRT。
+
+发布到公开仓库前还需要由项目所有者选择并添加合适的开源许可证。

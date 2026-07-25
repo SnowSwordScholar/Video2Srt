@@ -3,8 +3,14 @@ __pycache__/
 *.py[cod]
 
 .cache/
+models/
+output/
+build/
+dist/
+config.json
 *.tmp
 *.part
 
 cloud_failed.txt
 *.log
+*.srt
