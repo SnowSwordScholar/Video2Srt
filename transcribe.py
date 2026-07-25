@@ -101,6 +101,9 @@ class AppConfig:
 
     device: str = "auto"
     compute_type: str = "default"
+    http_proxy: str = ""
+    https_proxy: str = ""
+    hf_endpoint: str = ""
     language: str = "zh"
     task: str = "transcribe"
     beam_size: int = 5
@@ -161,6 +164,9 @@ def normalize_config(cfg: AppConfig) -> AppConfig:
     ]
     cfg.device = str(cfg.device or "auto").lower()
     cfg.compute_type = str(cfg.compute_type or "default").lower()
+    cfg.http_proxy = str(cfg.http_proxy or "").strip()
+    cfg.https_proxy = str(cfg.https_proxy or "").strip()
+    cfg.hf_endpoint = str(cfg.hf_endpoint or "").strip()
     cfg.max_chars_per_line = max(8, int(cfg.max_chars_per_line))
     cfg.max_chars_per_sentence = max(
         cfg.max_chars_per_line, int(cfg.max_chars_per_sentence)
@@ -226,6 +232,9 @@ def apply_cli_overrides(cfg: AppConfig, args: argparse.Namespace) -> AppConfig:
     for attr in (
         "device",
         "compute_type",
+        "http_proxy",
+        "https_proxy",
+        "hf_endpoint",
         "max_chars_per_line",
         "max_chars_per_sentence",
         "gap_threshold",
@@ -320,6 +329,19 @@ def model_target_dir(name: str, cfg: AppConfig) -> Path:
     return Path(preset["path"])
 
 
+def apply_download_network_config(cfg: AppConfig) -> str | None:
+    if cfg.http_proxy:
+        os.environ["HTTP_PROXY"] = cfg.http_proxy
+        os.environ["http_proxy"] = cfg.http_proxy
+    if cfg.https_proxy:
+        os.environ["HTTPS_PROXY"] = cfg.https_proxy
+        os.environ["https_proxy"] = cfg.https_proxy
+    if cfg.hf_endpoint:
+        os.environ["HF_ENDPOINT"] = cfg.hf_endpoint
+        return cfg.hf_endpoint
+    return None
+
+
 def download_model(name: str, cfg: AppConfig, progress_enabled: bool = False) -> Path:
     preset = MODEL_PRESETS.get(name)
     if not preset:
@@ -334,6 +356,7 @@ def download_model(name: str, cfg: AppConfig, progress_enabled: bool = False) ->
             "python -m pip install -r requirements.txt"
         ) from e
 
+    endpoint = apply_download_network_config(cfg)
     target = model_target_dir(name, cfg)
     target.mkdir(parents=True, exist_ok=True)
     emit_progress(
@@ -346,6 +369,7 @@ def download_model(name: str, cfg: AppConfig, progress_enabled: bool = False) ->
     path = snapshot_download(
         repo_id=str(preset["repo_id"]),
         local_dir=str(target),
+        endpoint=endpoint,
     )
     emit_progress(
         progress_enabled,
@@ -1115,6 +1139,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--cache-dir", help="覆盖配置中的本地视频缓存目录")
     ap.add_argument("--device", help="auto / cuda / cpu")
     ap.add_argument("--compute-type", help="default / float16 / int8 / float32 等")
+    ap.add_argument("--http-proxy", help="下载模型时使用的 HTTP 代理")
+    ap.add_argument("--https-proxy", help="下载模型时使用的 HTTPS 代理")
+    ap.add_argument("--hf-endpoint", help="Hugging Face endpoint / 镜像地址")
     ap.add_argument("--max-chars-per-line", type=int, help="字幕单行最大字数")
     ap.add_argument("--max-chars-per-sentence", type=int, help="单条字幕最大字数")
     ap.add_argument("--max-sentence-duration", type=float, help="单条字幕最大秒数")

@@ -99,6 +99,8 @@ CPU 可以正常运行，但 `large-v3` 对长视频会明显更慢；可按机�
 - `preserve_source_root_name`：默认 `true`，保留源目录最外层名称。
 - `use_local_cache`：先复制视频到本地缓存后转录，适合网络盘或 WebDAV。
 - `max_chars_per_line`、`max_chars_per_sentence`、`max_sentence_duration`、`gap_threshold`：控制字幕长度和断句。
+- `http_proxy`、`https_proxy`：模型下载使用的代理地址，例如 `http://127.0.0.1:7890`。
+- `hf_endpoint`：可选的 Hugging Face endpoint / 镜像地址。
 
 重新生成模板配置：
 

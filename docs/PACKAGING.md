@@ -20,6 +20,10 @@ The package intentionally excludes models. On first use, download a model in
 the GUI's model page. This keeps the release smaller and avoids redistributing
 large model files by accident.
 
+For restricted networks, configure `HTTP 代理`, `HTTPS 代理`, or `HF Endpoint`
+in the GUI settings before downloading. These values are saved only in the
+local `config.json`.
+
 ## CPU And CUDA
 
 The default package profile is `cpu`. This is the safest public target:

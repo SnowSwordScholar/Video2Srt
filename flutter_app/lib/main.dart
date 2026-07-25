@@ -6,12 +6,17 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 const String progressPrefix = '__VIDEO2SRT_PROGRESS__ ';
+const String customModelPreset = 'custom';
 const Map<String, String> modelRepos = {
   'large-v2': 'Systran/faster-whisper-large-v2',
   'large-v3': 'Systran/faster-whisper-large-v3',
 };
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isWindows) {
+    FilePickerWindows.registerWith();
+  }
   runApp(const Video2SrtApp());
 }
 
@@ -190,6 +195,9 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   final _sentenceCharsController = TextEditingController();
   final _sentenceDurationController = TextEditingController();
   final _gapController = TextEditingController();
+  final _httpProxyController = TextEditingController();
+  final _httpsProxyController = TextEditingController();
+  final _hfEndpointController = TextEditingController();
 
   BackendPaths? _backend;
   Map<String, dynamic> _config = {};
@@ -234,6 +242,9 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     _sentenceCharsController.dispose();
     _sentenceDurationController.dispose();
     _gapController.dispose();
+    _httpProxyController.dispose();
+    _httpsProxyController.dispose();
+    _hfEndpointController.dispose();
     super.dispose();
   }
 
@@ -271,7 +282,14 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
         _sentenceDurationController.text =
             '${config['max_sentence_duration'] ?? 4.8}';
         _gapController.text = '${config['gap_threshold'] ?? 0.45}';
-        _modelPreset = '${config['model_preset'] ?? 'large-v3'}';
+        _httpProxyController.text = '${config['http_proxy'] ?? ''}';
+        _httpsProxyController.text = '${config['https_proxy'] ?? ''}';
+        _hfEndpointController.text = '${config['hf_endpoint'] ?? ''}';
+        _modelPreset = _inferModelPreset(
+          backend,
+          '${config['model_preset'] ?? 'large-v3'}',
+          _modelController.text,
+        );
         _device = '${config['device'] ?? 'auto'}';
         _computeType = '${config['compute_type'] ?? 'default'}';
         _preserveRoot = config['preserve_source_root_name'] != false;
@@ -300,6 +318,116 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     }
   }
 
+  String _presetModelPath(BackendPaths backend, String preset) {
+    return '${backend.root.path}${Platform.pathSeparator}models'
+        '${Platform.pathSeparator}$preset';
+  }
+
+  bool _isAbsolutePath(String path) {
+    if (Platform.isWindows) {
+      return RegExp(r'^[a-zA-Z]:[\\/]').hasMatch(path) ||
+          path.startsWith(r'\\');
+    }
+    return path.startsWith('/');
+  }
+
+  String _resolveAgainstBackend(String raw) {
+    final backend = _backend;
+    final value = raw.trim();
+    if (value.isEmpty || _isAbsolutePath(value) || backend == null) {
+      return value;
+    }
+    return '${backend.root.path}${Platform.pathSeparator}$value';
+  }
+
+  String _normalizeComparablePath(String raw) {
+    final resolved = _resolveAgainstBackend(raw);
+    if (resolved.isEmpty) {
+      return '';
+    }
+    var path = Directory(resolved)
+        .absolute
+        .path
+        .replaceAll('/', Platform.pathSeparator)
+        .replaceAll('\\', Platform.pathSeparator);
+    while (path.endsWith(Platform.pathSeparator) && path.length > 3) {
+      path = path.substring(0, path.length - 1);
+    }
+    return Platform.isWindows ? path.toLowerCase() : path;
+  }
+
+  String _inferModelPreset(
+    BackendPaths backend,
+    String configuredPreset,
+    String modelBase,
+  ) {
+    final preset = modelRepos.containsKey(configuredPreset)
+        ? configuredPreset
+        : 'large-v3';
+    if (modelBase.trim().isEmpty) {
+      return preset;
+    }
+    final configuredPath = _normalizeComparablePath(modelBase);
+    final defaultPath =
+        _normalizeComparablePath(_presetModelPath(backend, preset));
+    if (configuredPath.isNotEmpty && configuredPath != defaultPath) {
+      return customModelPreset;
+    }
+    return preset;
+  }
+
+  String? _initialDirectoryFor(
+    String raw, {
+    String fallback = '',
+    bool treatAsFile = false,
+  }) {
+    final candidates = <String>[
+      raw,
+      fallback,
+      _sourceController.text,
+      _backend?.root.path ?? '',
+    ];
+    for (final candidate in candidates) {
+      final value = candidate.trim();
+      if (value.isEmpty) {
+        continue;
+      }
+      final resolved = _resolveAgainstBackend(value);
+      final directory = Directory(resolved);
+      if (directory.existsSync()) {
+        return directory.absolute.path;
+      }
+      final file = File(resolved);
+      if (file.existsSync()) {
+        return file.parent.absolute.path;
+      }
+      if (treatAsFile) {
+        final parent = file.parent;
+        if (parent.existsSync()) {
+          return parent.absolute.path;
+        }
+      }
+      var parent = directory.parent;
+      while (parent.path != parent.parent.path) {
+        if (parent.existsSync()) {
+          return parent.absolute.path;
+        }
+        parent = parent.parent;
+      }
+    }
+    return null;
+  }
+
+  double get _boundedProgress {
+    if (_progress < 0) {
+      return 0;
+    }
+    if (_progress > 1) {
+      return 1;
+    }
+    return _progress;
+  }
+
   Future<void> _saveConfig() async {
     final backend = _backend;
     if (backend == null) {
@@ -320,6 +448,9 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       ..['delete_cache_after'] = _deleteCache
       ..['device'] = _device
       ..['compute_type'] = _computeType
+      ..['http_proxy'] = _httpProxyController.text.trim()
+      ..['https_proxy'] = _httpsProxyController.text.trim()
+      ..['hf_endpoint'] = _hfEndpointController.text.trim()
       ..['max_chars_per_line'] = int.parse(_lineCharsController.text.trim())
       ..['max_chars_per_sentence'] =
           int.parse(_sentenceCharsController.text.trim())
@@ -338,35 +469,70 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     }
   }
 
-  Future<void> _pickDirectory(TextEditingController controller) async {
-    final selected = await FilePicker.getDirectoryPath(
-      initialDirectory: controller.text.isEmpty ? null : controller.text,
-    );
-    if (selected != null) {
-      setState(() => controller.text = selected);
+  Future<void> _pickDirectory(
+    TextEditingController controller, {
+    void Function(String selected)? onPicked,
+  }) async {
+    try {
+      final selected = await FilePicker.getDirectoryPath(
+        dialogTitle: '选择目录',
+        lockParentWindow: true,
+        initialDirectory: _initialDirectoryFor(controller.text),
+      );
+      if (selected != null) {
+        setState(() {
+          controller.text = selected;
+          onPicked?.call(selected);
+        });
+      }
+    } catch (error) {
+      setState(() => _appendLog('打开目录选择器失败：$error'));
+      _showMessage('打开目录选择器失败：$error');
     }
   }
 
   Future<void> _pickVideo() async {
-    final selection = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['mp4', 'mkv', 'mov', 'm4a', 'mp3', 'wav'],
-    );
-    final path = selection?.files.single.path;
-    if (path != null) {
-      setState(() => _singleFileController.text = path);
+    try {
+      final selection = await FilePicker.pickFiles(
+        dialogTitle: '选择视频或音频',
+        initialDirectory: _initialDirectoryFor(
+          _singleFileController.text,
+          fallback: _sourceController.text,
+          treatAsFile: true,
+        ),
+        lockParentWindow: true,
+        type: FileType.custom,
+        allowedExtensions: const ['mp4', 'mkv', 'mov', 'm4a', 'mp3', 'wav'],
+      );
+      final path = selection?.files.single.path;
+      if (path != null) {
+        setState(() => _singleFileController.text = path);
+      }
+    } catch (error) {
+      setState(() => _appendLog('打开文件选择器失败：$error'));
+      _showMessage('打开文件选择器失败：$error');
     }
   }
 
   void _setModelPreset(String value) {
     setState(() {
       _modelPreset = value;
-      if (modelRepos.containsKey(value) && _backend != null) {
-        _modelController.text =
-            '${_backend!.root.path}${Platform.pathSeparator}models'
-            '${Platform.pathSeparator}$value';
+      final backend = _backend;
+      if (modelRepos.containsKey(value) && backend != null) {
+        _modelController.text = _presetModelPath(backend, value);
       }
     });
+  }
+
+  void _setCustomModelPath(String path) {
+    _modelPreset = customModelPreset;
+    _modelController.text = path;
+  }
+
+  void _markCustomModel() {
+    if (_modelPreset != customModelPreset) {
+      setState(() => _modelPreset = customModelPreset);
+    }
   }
 
   Future<void> _runTranscription(
@@ -628,13 +794,21 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
               trailing: Expanded(
                 child: Align(
                   alignment: Alignment.bottomCenter,
-                  child: Tooltip(
-                    message: _isBusy ? '停止当前任务' : '当前没有任务',
-                    child: IconButton.filledTonal(
-                      onPressed: _isBusy ? _stopProcess : null,
-                      icon: const Icon(Icons.stop_circle_outlined),
-                    ),
-                  ),
+                  child: _isBusy
+                      ? Tooltip(
+                          message: '停止当前任务',
+                          child: IconButton.filledTonal(
+                            onPressed: _stopProcess,
+                            icon: const Icon(Icons.stop_circle_outlined),
+                          ),
+                        )
+                      : Tooltip(
+                          message: '当前没有任务',
+                          child: Icon(
+                            Icons.check_circle_outline,
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                        ),
                 ),
               ),
             ),
@@ -770,7 +944,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           ),
           const SizedBox(height: 8),
           LinearProgressIndicator(
-            value: _isBusy && !_isDownloading ? _progress : null,
+            value: _isDownloading ? null : _boundedProgress,
           ),
           const SizedBox(height: 8),
           Text(
@@ -804,36 +978,50 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   Widget _buildModelsPage() {
     final backend = _backend;
     return _PageBody(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: ListView(
         children: [
           const _SectionHeader(title: 'faster-whisper 模型'),
-          const SizedBox(height: 8),
           const SizedBox(height: 20),
           for (final entry in modelRepos.entries) ...[
             _ModelRow(
               name: entry.key,
               repo: entry.value,
-              selected: _modelPreset == entry.key,
-              path: backend == null
-                  ? ''
-                  : '${backend.root.path}${Platform.pathSeparator}models'
-                      '${Platform.pathSeparator}${entry.key}',
+              groupValue: _modelPreset,
+              path: backend == null ? '' : _presetModelPath(backend, entry.key),
               onSelect: _isBusy ? null : () => _setModelPreset(entry.key),
               onDownload: _isBusy ? null : () => _downloadModel(entry.key),
             ),
             const Divider(height: 1),
           ],
           const SizedBox(height: 24),
+          RadioListTile<String>(
+            contentPadding: EdgeInsets.zero,
+            value: customModelPreset,
+            groupValue: _modelPreset,
+            onChanged: _isBusy
+                ? null
+                : (_) => setState(() => _modelPreset = customModelPreset),
+            title: const Text('自定义模型目录'),
+          ),
           _PathField(
             label: '自定义模型目录',
             controller: _modelController,
             icon: Icons.folder_special_outlined,
-            onPick: _isBusy ? null : () => _pickDirectory(_modelController),
+            onPick: _isBusy
+                ? null
+                : () => _pickDirectory(
+                      _modelController,
+                      onPicked: _setCustomModelPath,
+                    ),
+            onChanged: (_) => _markCustomModel(),
           ),
           const SizedBox(height: 12),
-          Text('已选模型：$_modelPreset',
-              style: Theme.of(context).textTheme.bodySmall),
+          Text(
+            _modelPreset == customModelPreset
+                ? '已选模型：自定义目录'
+                : '已选模型：$_modelPreset',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ],
       ),
     );
@@ -947,6 +1135,52 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                     ),
               ),
             ),
+          const SizedBox(height: 28),
+          const _SectionHeader(title: '模型下载'),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth > 680;
+              final fields = [
+                TextFormField(
+                  controller: _httpProxyController,
+                  decoration: const InputDecoration(labelText: 'HTTP 代理'),
+                ),
+                TextFormField(
+                  controller: _httpsProxyController,
+                  decoration: const InputDecoration(labelText: 'HTTPS 代理'),
+                ),
+                TextFormField(
+                  controller: _hfEndpointController,
+                  decoration: const InputDecoration(labelText: 'HF Endpoint'),
+                ),
+              ];
+              if (!wide) {
+                return Column(
+                  children: [
+                    fields[0],
+                    const SizedBox(height: 12),
+                    fields[1],
+                    const SizedBox(height: 12),
+                    fields[2],
+                  ],
+                );
+              }
+              return Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: fields[0]),
+                      const SizedBox(width: 12),
+                      Expanded(child: fields[1]),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  fields[2],
+                ],
+              );
+            },
+          ),
           const SizedBox(height: 28),
           const _SectionHeader(title: '断句'),
           const SizedBox(height: 12),
@@ -1109,6 +1343,7 @@ class _PathField extends StatelessWidget {
     required this.icon,
     required this.onPick,
     this.onClear,
+    this.onChanged,
   });
 
   final String label;
@@ -1116,46 +1351,45 @@ class _PathField extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onPick;
   final VoidCallback? onClear;
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: TextFormField(
-            controller: controller,
-            decoration: InputDecoration(
-              labelText: label,
-              prefixIcon: Icon(icon),
+    return TextFormField(
+      controller: controller,
+      minLines: 1,
+      maxLines: 1,
+      onChanged: onChanged,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon),
+        suffixIcon: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Tooltip(
+              message: '选择$label',
+              child: IconButton(
+                onPressed: onPick,
+                icon: const Icon(Icons.folder_open_outlined),
+              ),
             ),
-            validator: (value) {
-              if (label == '字幕输出目录' &&
-                  (value == null || value.trim().isEmpty)) {
-                return '请输入输出目录';
-              }
-              return null;
-            },
-          ),
+            if (onClear != null)
+              Tooltip(
+                message: '清空$label',
+                child: IconButton(
+                  onPressed: onClear,
+                  icon: const Icon(Icons.clear),
+                ),
+              ),
+          ],
         ),
-        const SizedBox(width: 8),
-        Tooltip(
-          message: '选择$label',
-          child: IconButton.filledTonal(
-            onPressed: onPick,
-            icon: const Icon(Icons.folder_open_outlined),
-          ),
-        ),
-        if (onClear != null) ...[
-          const SizedBox(width: 4),
-          Tooltip(
-            message: '清空$label',
-            child: IconButton(
-              onPressed: onClear,
-              icon: const Icon(Icons.clear),
-            ),
-          ),
-        ],
-      ],
+      ),
+      validator: (value) {
+        if (label == '字幕输出目录' && (value == null || value.trim().isEmpty)) {
+          return '请输入输出目录';
+        }
+        return null;
+      },
     );
   }
 }
@@ -1191,7 +1425,7 @@ class _ModelRow extends StatelessWidget {
     required this.name,
     required this.repo,
     required this.path,
-    required this.selected,
+    required this.groupValue,
     required this.onSelect,
     required this.onDownload,
   });
@@ -1199,7 +1433,7 @@ class _ModelRow extends StatelessWidget {
   final String name;
   final String repo;
   final String path;
-  final bool selected;
+  final String groupValue;
   final VoidCallback? onSelect;
   final VoidCallback? onDownload;
 
@@ -1211,7 +1445,7 @@ class _ModelRow extends StatelessWidget {
         children: [
           Radio<String>(
             value: name,
-            groupValue: selected ? name : null,
+            groupValue: groupValue,
             onChanged: onSelect == null ? null : (_) => onSelect!(),
           ),
           const SizedBox(width: 4),
