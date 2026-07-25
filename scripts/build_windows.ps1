@@ -3,11 +3,16 @@ param(
     [ValidateSet("source", "pyinstaller")]
     [string]$BackendMode = "pyinstaller",
 
+    [ValidateSet("cpu", "cuda", "auto")]
+    [string]$PackageProfile = "cpu",
+
     [string]$RuntimePath = "",
 
     [switch]$SkipFlutterBuild,
 
-    [switch]$IncludeModels
+    [switch]$IncludeModels,
+
+    [switch]$SkipBackendCheck
 )
 
 $ErrorActionPreference = "Stop"
@@ -43,6 +48,95 @@ function Copy-DirectoryContents {
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
     Get-ChildItem -LiteralPath $Source -Force |
         Copy-Item -Destination $Destination -Recurse -Force
+}
+
+function Get-RuntimePython {
+    param(
+        [Parameter(Mandatory = $true)][string]$RuntimeRoot
+    )
+
+    $candidates = @(
+        (Join-Path $RuntimeRoot "python.exe"),
+        (Join-Path $RuntimeRoot "Scripts\python.exe"),
+        (Join-Path $RuntimeRoot "bin\python.exe")
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            return $candidate
+        }
+    }
+    return $null
+}
+
+function Write-BackendManifest {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Mode,
+        [Parameter(Mandatory = $true)][string]$Profile,
+        [Parameter(Mandatory = $true)][bool]$ModelsIncluded,
+        [string]$Runtime = ""
+    )
+
+    $gitCommit = ""
+    try {
+        $gitCommit = (& git -C $RepoRoot rev-parse --short HEAD 2>$null)
+    }
+    catch {
+        $gitCommit = ""
+    }
+
+    $manifest = [ordered]@{
+        name = "Video2Srt backend"
+        backend_mode = $Mode
+        package_profile = $Profile
+        models_included = $ModelsIncluded
+        runtime_path = $Runtime
+        git_commit = $gitCommit
+        created_at_utc = (Get-Date).ToUniversalTime().ToString("o")
+        notes = @(
+            "The cpu profile is the default public package target.",
+            "The cuda profile records intent only; CUDA support still depends on the build environment dependencies and the target machine NVIDIA runtime.",
+            "Models are intentionally excluded unless IncludeModels is set."
+        )
+    }
+    $manifest |
+        ConvertTo-Json -Depth 4 |
+        Set-Content -LiteralPath $Path -Encoding UTF8
+}
+
+function Invoke-BackendCheck {
+    param(
+        [Parameter(Mandatory = $true)][string]$Mode,
+        [string]$Runtime = ""
+    )
+
+    if ($SkipBackendCheck) {
+        return
+    }
+
+    $config = Join-Path $BackendRoot "config.example.json"
+    if ($Mode -eq "pyinstaller") {
+        $backendExe = Join-Path $BackendRoot "transcribe.exe"
+        & $backendExe --config $config --check-runtime
+        if ($LASTEXITCODE -ne 0) {
+            throw "Packaged backend runtime check failed."
+        }
+        return
+    }
+
+    if (-not $Runtime) {
+        Write-Host "Skipping backend runtime check because source mode has no bundled runtime."
+        return
+    }
+
+    $pythonExe = Get-RuntimePython -RuntimeRoot $Runtime
+    if (-not $pythonExe) {
+        throw "No python executable found in bundled runtime: $Runtime"
+    }
+    & $pythonExe (Join-Path $BackendRoot "transcribe.py") --config $config --check-runtime
+    if ($LASTEXITCODE -ne 0) {
+        throw "Bundled Python backend runtime check failed."
+    }
 }
 
 if (-not $SkipFlutterBuild) {
@@ -84,9 +178,9 @@ if ($BackendMode -eq "source") {
 
     if ($RuntimePath) {
         $resolvedRuntime = (Resolve-Path $RuntimePath).Path
-        $pythonExe = Join-Path $resolvedRuntime "python.exe"
-        if (-not (Test-Path -LiteralPath $pythonExe)) {
-            throw "RuntimePath must point to a directory containing python.exe: $resolvedRuntime"
+        $pythonExe = Get-RuntimePython -RuntimeRoot $resolvedRuntime
+        if (-not $pythonExe) {
+            throw "RuntimePath must contain python.exe, Scripts\python.exe, or bin\python.exe: $resolvedRuntime"
         }
         Copy-DirectoryContents -Source $resolvedRuntime -Destination (Join-Path $BackendRoot "runtime")
     }
@@ -118,6 +212,12 @@ else {
         --collect-all ctranslate2 `
         --collect-all tokenizers `
         --collect-all huggingface_hub `
+        --collect-all av `
+        --copy-metadata faster-whisper `
+        --copy-metadata ctranslate2 `
+        --copy-metadata tokenizers `
+        --copy-metadata huggingface-hub `
+        --copy-metadata av `
         (Join-Path $RepoRoot "transcribe.py")
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller build failed."
@@ -132,5 +232,18 @@ if ($IncludeModels) {
         Copy-DirectoryContents -Source $models -Destination (Join-Path $BackendRoot "models")
     }
 }
+
+$bundledRuntime = ""
+if ($BackendMode -eq "source" -and $RuntimePath) {
+    $bundledRuntime = Join-Path $BackendRoot "runtime"
+}
+Write-BackendManifest `
+    -Path (Join-Path $BackendRoot "backend_manifest.json") `
+    -Mode $BackendMode `
+    -Profile $PackageProfile `
+    -ModelsIncluded ([bool]$IncludeModels) `
+    -Runtime $bundledRuntime
+
+Invoke-BackendCheck -Mode $BackendMode -Runtime $bundledRuntime
 
 Write-Host "Windows package ready: $PackageRoot"

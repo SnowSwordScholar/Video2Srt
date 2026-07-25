@@ -24,9 +24,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
+import importlib.metadata
 import json
 import logging
 import os
+import platform
 import re
 import shutil
 import sys
@@ -34,8 +37,6 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-from faster_whisper import WhisperModel
 
 
 PROGRESS_PREFIX = "__VIDEO2SRT_PROGRESS__ "
@@ -60,6 +61,14 @@ MODEL_PRESETS = {
         "path": PROJECT_ROOT / "models" / "large-v3",
     },
 }
+RUNTIME_DEPENDENCIES = {
+    "faster_whisper": "faster-whisper",
+    "ctranslate2": "ctranslate2",
+    "huggingface_hub": "huggingface-hub",
+    "tokenizers": "tokenizers",
+    "av": "av",
+}
+TRANSCRIBE_DEPENDENCIES = {"faster_whisper", "ctranslate2", "tokenizers", "av"}
 
 SENT_END_MARKS = set("。！？；!?;")
 SENT_PAUSE_MARKS = set("，、：,:")
@@ -357,6 +366,95 @@ def cuda_device_count() -> int:
         return 0
 
 
+def _dependency_status(module_name: str, distribution_name: str) -> dict[str, Any]:
+    status: dict[str, Any] = {
+        "module": module_name,
+        "distribution": distribution_name,
+        "available": False,
+        "version": None,
+    }
+    try:
+        importlib.import_module(module_name)
+        status["available"] = True
+    except Exception as e:
+        status["error"] = f"{type(e).__name__}: {e}"
+
+    try:
+        status["version"] = importlib.metadata.version(distribution_name)
+    except importlib.metadata.PackageNotFoundError:
+        pass
+    return status
+
+
+def find_model_status(cfg: AppConfig) -> dict[str, Any]:
+    status: dict[str, Any] = {
+        "configured_path": str(cfg.model_base),
+        "available": False,
+    }
+    try:
+        status["resolved_path"] = find_model_path(cfg)
+        status["available"] = True
+    except Exception as e:
+        status["error"] = str(e)
+    return status
+
+
+def check_runtime(cfg: AppConfig, progress_enabled: bool = False) -> dict[str, Any]:
+    """返回可打包后运行的依赖、设备和模型状态，不加载 Whisper 模型。"""
+    dependencies = {
+        module: _dependency_status(module, distribution)
+        for module, distribution in RUNTIME_DEPENDENCIES.items()
+    }
+    dependency_ok = all(
+        dependencies[module]["available"] for module in TRANSCRIBE_DEPENDENCIES
+    )
+    try:
+        device, compute_type, reason = resolve_runtime(cfg)
+        runtime_error = None
+    except Exception as e:
+        device, compute_type, reason = None, None, None
+        runtime_error = f"{type(e).__name__}: {e}"
+
+    model = find_model_status(cfg)
+    report: dict[str, Any] = {
+        "ok": dependency_ok and runtime_error is None,
+        "transcription_ready": dependency_ok
+        and runtime_error is None
+        and bool(model["available"]),
+        "application_root": str(PROJECT_ROOT),
+        "frozen": bool(getattr(sys, "frozen", False)),
+        "python": {
+            "executable": sys.executable,
+            "version": platform.python_version(),
+            "architecture": platform.architecture()[0],
+            "filesystem_encoding": sys.getfilesystemencoding(),
+        },
+        "platform": platform.platform(),
+        "dependencies": dependencies,
+        "cuda_device_count": cuda_device_count(),
+        "recommended_runtime": {
+            "device": device,
+            "compute_type": compute_type,
+            "reason": reason,
+        },
+        "model": model,
+    }
+    if runtime_error:
+        report["runtime_error"] = runtime_error
+
+    emit_progress(
+        progress_enabled,
+        "runtime_check",
+        ok=report["ok"],
+        transcription_ready=report["transcription_ready"],
+        cuda_device_count=report["cuda_device_count"],
+        device=device,
+        compute_type=compute_type,
+        frozen=report["frozen"],
+    )
+    return report
+
+
 def resolve_runtime(cfg: AppConfig) -> tuple[str, str, str]:
     configured_device = str(cfg.device or "auto").lower()
     configured_compute = str(cfg.compute_type or "default").lower()
@@ -381,7 +479,9 @@ def build_model(
     cfg: AppConfig,
     log: logging.Logger | None = None,
     progress_enabled: bool = False,
-) -> WhisperModel:
+) -> Any:
+    from faster_whisper import WhisperModel
+
     model_path = find_model_path(cfg)
     device, compute_type, reason = resolve_runtime(cfg)
     if log:
@@ -423,7 +523,7 @@ def emit_progress(enabled: bool, event: str, **payload) -> None:
 
 
 def transcribe_one(
-    model: WhisperModel,
+    model: Any,
     video_path: Path,
     cfg: AppConfig,
     progress_cb=None,
@@ -1002,6 +1102,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="列出可下载的模型",
     )
+    ap.add_argument(
+        "--check-runtime",
+        action="store_true",
+        help="检查依赖、模型和 CPU/CUDA 运行环境",
+    )
     ap.add_argument("--emit-progress", action="store_true", help=argparse.SUPPRESS)
 
     ap.add_argument("--src-root", help="覆盖配置中的视频根目录")
@@ -1034,14 +1139,21 @@ def main():
         return
 
     cfg = apply_cli_overrides(load_config(cfg_path), args)
-    log = setup_logging(cfg)
-    log.info(f"使用配置: {cfg_path}")
-    cfg.dst_root.mkdir(parents=True, exist_ok=True)
 
     if args.list_models:
         for name, preset in MODEL_PRESETS.items():
             print(f"{name}\t{preset['repo_id']}\t{preset['path']}")
         return
+    if args.check_runtime:
+        report = check_runtime(cfg, args.emit_progress)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        if not report["ok"]:
+            raise SystemExit(2)
+        return
+
+    log = setup_logging(cfg)
+    log.info(f"使用配置: {cfg_path}")
+    cfg.dst_root.mkdir(parents=True, exist_ok=True)
 
     if args.download_model:
         target = download_model(args.download_model, cfg, args.emit_progress)

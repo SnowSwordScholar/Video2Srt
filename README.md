@@ -106,16 +106,35 @@ CPU 可以正常运行，但 `large-v3` 对长视频会明显更慢；可按机�
 .\.venv\Scripts\python.exe transcribe.py --write-default-config
 ```
 
+检查当前后端依赖、模型和 CPU/CUDA 选择：
+
+```powershell
+.\.venv\Scripts\python.exe transcribe.py --check-runtime
+```
+
 ## Windows 发布包
 
 发布脚本会先构建 Flutter，再把后端放入 `dist\Video2Srt\backend`。模型默认不随包分发，用户可以在 GUI 的“模型”页下载。
 
-默认会构建不依赖目标机器 Python 的发布包：
+默认会构建不依赖目标机器 Python 的 PyInstaller 发布包，并把发布意图写入
+`backend\backend_manifest.json`：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .\scripts\build_windows.ps1
 ```
+
+推荐公开发布先使用默认的 `-PackageProfile cpu`。它仍会在用户机器上按配置执行
+`device: auto`：能用 CUDA 时尝试 CUDA，不能用时回到 CPU `int8`。
+
+如果要发布面向 CUDA 的包，可以标记：
+
+```powershell
+.\scripts\build_windows.ps1 -PackageProfile cuda
+```
+
+这个标记只记录发布意图；实际 CUDA 能力取决于打包环境中安装的
+`ctranslate2`/相关运行库，以及目标机器的 NVIDIA 驱动和 CUDA 运行库。
 
 如需生成源码后端的便携包，可显式选择 `source` 模式；它会调用随包 runtime 或系统 Python：
 
@@ -129,10 +148,16 @@ CPU 可以正常运行，但 `large-v3` 对长视频会明显更慢；可按机�
 .\scripts\build_windows.ps1 -RuntimePath "D:\runtime\python"
 ```
 
+`RuntimePath` 可以是带 `python.exe` 的便携 Python，也可以是包含
+`Scripts\python.exe` 的虚拟环境目录。真正对外分发时更推荐 PyInstaller 或可重定位的
+Python runtime；普通 venv 在不同机器上未必完全可移植。
+
 `-IncludeModels` 会把本地 `models` 目录一起复制到发布包；默认关闭，避免意外打入体积很大的模型文件。
+
+更完整的发布说明见 [docs/PACKAGING.md](docs/PACKAGING.md)。
 
 ## Git 与隐私
 
 `.gitignore` 已排除本地配置、日志、缓存、模型、输出字幕和发布产物。不要提交真实视频、模型或生成的 SRT。
 
-发布到公开仓库前还需要由项目所有者选择并添加合适的开源许可证。
+发布到公开仓库前还需要由项目所有者选择并添加合适的开源许可证。由于早期本地提交可能包含真实路径或生成字幕，公开发布建议从当前干净工作树创建一个新的首个提交，或在发布前重写历史。

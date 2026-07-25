@@ -57,6 +57,7 @@ class BackendPaths {
     required this.baseArgs,
     required this.config,
     required this.exampleConfig,
+    required this.manifest,
   });
 
   final Directory root;
@@ -64,6 +65,7 @@ class BackendPaths {
   final List<String> baseArgs;
   final File config;
   final File exampleConfig;
+  final File manifest;
 
   String get displayCommand {
     return [executable, ...baseArgs].join(' ');
@@ -75,10 +77,10 @@ class BackendPaths {
     final candidates = <Directory>[
       if (configuredRoot != null && configuredRoot.isNotEmpty)
         Directory(configuredRoot),
-      Directory.current.parent,
-      Directory.current,
       Directory('${executableDir.path}${Platform.pathSeparator}backend'),
       executableDir,
+      Directory.current,
+      Directory.current.parent,
       executableDir.parent,
     ];
 
@@ -102,6 +104,8 @@ class BackendPaths {
     final config = File('${root.path}${Platform.pathSeparator}config.json');
     final exampleConfig =
         File('${root.path}${Platform.pathSeparator}config.example.json');
+    final manifest =
+        File('${root.path}${Platform.pathSeparator}backend_manifest.json');
     final bundledExecutable = File('${root.path}${Platform.pathSeparator}'
         '${Platform.isWindows ? 'transcribe.exe' : 'transcribe'}');
     if (await bundledExecutable.exists()) {
@@ -111,6 +115,7 @@ class BackendPaths {
         baseArgs: const [],
         config: config,
         exampleConfig: exampleConfig,
+        manifest: manifest,
       );
     }
 
@@ -122,6 +127,7 @@ class BackendPaths {
         baseArgs: [script.path],
         config: config,
         exampleConfig: exampleConfig,
+        manifest: manifest,
       );
     }
     return null;
@@ -138,6 +144,10 @@ class BackendPaths {
           '${Platform.pathSeparator}Scripts${Platform.pathSeparator}python.exe'),
       File('${root.path}${Platform.pathSeparator}runtime'
           '${Platform.pathSeparator}python.exe'),
+      File('${root.path}${Platform.pathSeparator}runtime'
+          '${Platform.pathSeparator}Scripts${Platform.pathSeparator}python.exe'),
+      File('${root.path}${Platform.pathSeparator}runtime'
+          '${Platform.pathSeparator}bin${Platform.pathSeparator}python.exe'),
     ];
     for (final candidate in candidates) {
       if (await candidate.exists()) {
@@ -183,6 +193,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
 
   BackendPaths? _backend;
   Map<String, dynamic> _config = {};
+  Map<String, dynamic> _manifest = {};
   Process? _process;
   StreamSubscription<String>? _stdoutSub;
   StreamSubscription<String>? _stderrSub;
@@ -234,12 +245,22 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           : backend.exampleConfig;
       final content = await configFile.readAsString();
       final config = jsonDecode(content) as Map<String, dynamic>;
+      Map<String, dynamic> manifest = {};
+      if (await backend.manifest.exists()) {
+        try {
+          manifest = jsonDecode(await backend.manifest.readAsString())
+              as Map<String, dynamic>;
+        } catch (_) {
+          manifest = {};
+        }
+      }
       if (!mounted) {
         return;
       }
       setState(() {
         _backend = backend;
         _config = config;
+        _manifest = manifest;
         _sourceController.text = '${config['src_root'] ?? ''}';
         _outputController.text = '${config['dst_root'] ?? 'output'}';
         _modelController.text = '${config['model_base'] ?? ''}';
@@ -258,6 +279,12 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
         _deleteCache = config['delete_cache_after'] != false;
         _appendLog('后端目录：${backend.root.path}');
         _appendLog('后端命令：${backend.displayCommand}');
+        if (manifest.isNotEmpty) {
+          _appendLog(
+            '后端包：${manifest['backend_mode'] ?? '-'} / '
+            '${manifest['package_profile'] ?? '-'}',
+          );
+        }
       });
     } catch (error) {
       if (mounted) {
@@ -399,6 +426,21 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     }
   }
 
+  Future<void> _checkRuntime() async {
+    if (_isBusy) {
+      return;
+    }
+    try {
+      await _saveConfig();
+      await _startProcess(
+        ['--emit-progress', '--check-runtime'],
+        title: '环境自检',
+      );
+    } catch (error) {
+      _showMessage('$error');
+    }
+  }
+
   Future<void> _startProcess(
     List<String> args, {
     required String title,
@@ -497,6 +539,17 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
         case 'runtime':
           _appendLog(
             '运行设备：${event['device']}  计算精度：${event['compute_type']}',
+          );
+          break;
+        case 'runtime_check':
+          final ok = event['ok'] == true;
+          _progress = 1;
+          _progressText = ok ? '环境自检通过' : '环境自检发现问题';
+          _appendLog(
+            '环境自检：${ok ? '通过' : '未通过'}  '
+            'CUDA 设备：${event['cuda_device_count'] ?? 0}  '
+            '推荐：${event['device'] ?? '-'} / '
+            '${event['compute_type'] ?? '-'}',
           );
           break;
         case 'model_download_done':
@@ -790,7 +843,14 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     return _PageBody(
       child: ListView(
         children: [
-          const _SectionHeader(title: '硬件与缓存'),
+          _SectionHeader(
+            title: '硬件与缓存',
+            action: OutlinedButton.icon(
+              onPressed: _isBusy ? null : _checkRuntime,
+              icon: const Icon(Icons.health_and_safety_outlined),
+              label: const Text('环境自检'),
+            ),
+          ),
           const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -876,6 +936,17 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                 ? null
                 : (value) => setState(() => _preserveRoot = value),
           ),
+          if (_manifest.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '后端包：${_manifest['backend_mode'] ?? '-'} / '
+                '${_manifest['package_profile'] ?? '-'}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ),
           const SizedBox(height: 28),
           const _SectionHeader(title: '断句'),
           const SizedBox(height: 12),
