@@ -361,10 +361,23 @@ def download_model(name: str, cfg: AppConfig, progress_enabled: bool = False) ->
     target.mkdir(parents=True, exist_ok=True)
     emit_progress(
         progress_enabled,
+        "stage",
+        stage="准备下载模型",
+        name=name,
+    )
+    emit_progress(
+        progress_enabled,
         "model_download_start",
         name=name,
         repo_id=preset["repo_id"],
         target=str(target),
+    )
+    emit_progress(
+        progress_enabled,
+        "stage",
+        stage="下载模型文件",
+        name=name,
+        repo_id=preset["repo_id"],
     )
     path = snapshot_download(
         repo_id=str(preset["repo_id"]),
@@ -517,6 +530,11 @@ def build_model(
         compute_type=compute_type,
         reason=reason,
     )
+    emit_progress(
+        progress_enabled,
+        "stage",
+        stage=f"加载模型到 {device}（{compute_type}）",
+    )
 
     try:
         return WhisperModel(
@@ -535,6 +553,11 @@ def build_model(
             device="cpu",
             compute_type="int8",
             reason="cuda_fallback",
+        )
+        emit_progress(
+            progress_enabled,
+            "stage",
+            stage="CUDA 初始化失败，改用 CPU 加载模型",
         )
         return WhisperModel(model_path, device="cpu", compute_type="int8")
 
@@ -1005,8 +1028,17 @@ def _cache_relative_path(src: Path, cfg: AppConfig) -> Path:
     return Path(f"{digest}_{src.name}")
 
 
-def materialize_video(src: Path, cfg: AppConfig, log) -> tuple[Path, Path | None]:
+def materialize_video(
+    src: Path,
+    cfg: AppConfig,
+    log,
+    *,
+    progress_enabled: bool = False,
+    display_name: str | None = None,
+) -> tuple[Path, Path | None]:
+    name = display_name or src.name
     if not cfg.use_local_cache:
+        emit_progress(progress_enabled, "stage", stage="使用原始视频文件", name=name)
         return src, None
 
     cache_path = cfg.cache_dir / _cache_relative_path(src, cfg)
@@ -1015,7 +1047,15 @@ def materialize_video(src: Path, cfg: AppConfig, log) -> tuple[Path, Path | None
     def _copy():
         src_size = src.stat().st_size
         if cache_path.exists() and cache_path.stat().st_size == src_size:
+            emit_progress(progress_enabled, "stage", stage="复用本地缓存", name=name)
             return cache_path
+        emit_progress(
+            progress_enabled,
+            "stage",
+            stage="复制到本地缓存",
+            name=name,
+            bytes=src_size,
+        )
         tmp = cache_path.with_name(cache_path.name + ".part")
         if tmp.exists():
             tmp.unlink()
@@ -1023,6 +1063,7 @@ def materialize_video(src: Path, cfg: AppConfig, log) -> tuple[Path, Path | None
         if tmp.stat().st_size != src_size:
             raise OSError(f"缓存文件大小不一致: {tmp}")
         tmp.replace(cache_path)
+        emit_progress(progress_enabled, "stage", stage="本地缓存就绪", name=name)
         return cache_path
 
     cached = with_retry(
@@ -1056,8 +1097,14 @@ def process_one(
 ):
     """转录单个视频（带重试）。返回 (sentences, 耗时)。"""
     t0 = time.time()
-    emit_progress(progress_enabled, "stage", stage="缓存视频", name=v.name)
-    work_video, cached = materialize_video(v, cfg, log)
+    emit_progress(progress_enabled, "stage", stage="准备视频文件", name=v.name)
+    work_video, cached = materialize_video(
+        v,
+        cfg,
+        log,
+        progress_enabled=progress_enabled,
+        display_name=v.name,
+    )
     try:
         def _progress(percent: int, current: float, duration: float) -> None:
             emit_progress(
@@ -1067,13 +1114,20 @@ def process_one(
                 percent=percent,
                 current=round(current, 2),
                 duration=round(duration, 2),
+                name=v.name,
             )
 
         def _do():
             emit_progress(progress_enabled, "stage", stage="等待转录进度", name=v.name)
             segments = transcribe_one(model, work_video, cfg, _progress)
             sentences = reflow(segments, cfg)
-            emit_progress(progress_enabled, "stage", stage="写入字幕", percent=100)
+            emit_progress(
+                progress_enabled,
+                "stage",
+                stage="写入字幕",
+                name=v.name,
+                percent=100,
+            )
             return write_srt(sentences, srt, cfg)
 
         sentences = with_retry(

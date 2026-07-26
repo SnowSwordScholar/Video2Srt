@@ -43,20 +43,20 @@ class Video2SrtApp extends StatelessWidget {
         scaffoldBackgroundColor: colorScheme.surface,
         filledButtonTheme: const FilledButtonThemeData(
           style: ButtonStyle(
-            minimumSize: WidgetStatePropertyAll(Size(0, 50)),
+            minimumSize: WidgetStatePropertyAll(Size(0, 56)),
             padding: WidgetStatePropertyAll(
-              EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              EdgeInsets.symmetric(horizontal: 28, vertical: 18),
             ),
             textStyle: WidgetStatePropertyAll(
-              TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
             ),
           ),
         ),
         outlinedButtonTheme: const OutlinedButtonThemeData(
           style: ButtonStyle(
-            minimumSize: WidgetStatePropertyAll(Size(0, 50)),
+            minimumSize: WidgetStatePropertyAll(Size(0, 54)),
             padding: WidgetStatePropertyAll(
-              EdgeInsets.symmetric(horizontal: 22, vertical: 15),
+              EdgeInsets.symmetric(horizontal: 26, vertical: 17),
             ),
             textStyle: WidgetStatePropertyAll(
               TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
@@ -65,9 +65,9 @@ class Video2SrtApp extends StatelessWidget {
         ),
         textButtonTheme: const TextButtonThemeData(
           style: ButtonStyle(
-            minimumSize: WidgetStatePropertyAll(Size(0, 46)),
+            minimumSize: WidgetStatePropertyAll(Size(0, 50)),
             padding: WidgetStatePropertyAll(
-              EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              EdgeInsets.symmetric(horizontal: 20, vertical: 15),
             ),
             textStyle: WidgetStatePropertyAll(
               TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
@@ -96,6 +96,7 @@ class BackendPaths {
     required this.config,
     required this.exampleConfig,
     required this.manifest,
+    required this.dataRoot,
   });
 
   final Directory root;
@@ -104,6 +105,7 @@ class BackendPaths {
   final File config;
   final File exampleConfig;
   final File manifest;
+  final Directory dataRoot;
 
   String get displayCommand {
     return [executable, ...baseArgs].join(' ');
@@ -147,13 +149,15 @@ class BackendPaths {
     final bundledExecutable = File('${root.path}${Platform.pathSeparator}'
         '${Platform.isWindows ? 'transcribe.exe' : 'transcribe'}');
     if (await bundledExecutable.exists()) {
+      final dataRoot = _userDataRoot();
       return BackendPaths(
         root: root,
         executable: bundledExecutable.path,
         baseArgs: const [],
-        config: config,
+        config: File('${dataRoot.path}${Platform.pathSeparator}config.json'),
         exampleConfig: exampleConfig,
         manifest: manifest,
+        dataRoot: dataRoot,
       );
     }
 
@@ -166,9 +170,18 @@ class BackendPaths {
         config: config,
         exampleConfig: exampleConfig,
         manifest: manifest,
+        dataRoot: root,
       );
     }
     return null;
+  }
+
+  static Directory _userDataRoot() {
+    final base = Platform.environment['APPDATA'] ??
+        Platform.environment['LOCALAPPDATA'] ??
+        Platform.environment['HOME'] ??
+        Directory.current.path;
+    return Directory('$base${Platform.pathSeparator}Video2Srt');
   }
 
   static Future<String> _findPython(Directory root) async {
@@ -254,6 +267,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   String _progressText = '等待任务';
   String _currentVideo = '当前视频：-';
   final List<String> _logs = [];
+  Timer? _configSaveDebounce;
 
   @override
   void initState() {
@@ -280,6 +294,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     _httpsProxyController.dispose();
     _hfEndpointController.dispose();
     _logScrollController.dispose();
+    _configSaveDebounce?.cancel();
     super.dispose();
   }
 
@@ -332,6 +347,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
         _deleteCache = config['delete_cache_after'] != false;
         _appendLog('后端目录：${backend.root.path}');
         _appendLog('后端命令：${backend.displayCommand}');
+        _appendLog('配置文件：${backend.config.path}');
         if (manifest.isNotEmpty) {
           _appendLog(
             '后端包：${manifest['backend_mode'] ?? '-'} / '
@@ -364,7 +380,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   }
 
   String _presetModelPath(BackendPaths backend, String preset) {
-    return '${backend.root.path}${Platform.pathSeparator}models'
+    return '${backend.dataRoot.path}${Platform.pathSeparator}models'
         '${Platform.pathSeparator}$preset';
   }
 
@@ -382,7 +398,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     if (value.isEmpty || _isAbsolutePath(value) || backend == null) {
       return value;
     }
-    return '${backend.root.path}${Platform.pathSeparator}$value';
+    return '${backend.dataRoot.path}${Platform.pathSeparator}$value';
   }
 
   String _normalizeComparablePath(String raw) {
@@ -406,6 +422,9 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     String configuredPreset,
     String modelBase,
   ) {
+    if (configuredPreset == customModelPreset) {
+      return customModelPreset;
+    }
     final preset = modelRepos.containsKey(configuredPreset)
         ? configuredPreset
         : 'large-v3';
@@ -430,7 +449,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       raw,
       fallback,
       _sourceController.text,
-      _backend?.root.path ?? '',
+      _backend?.dataRoot.path ?? '',
     ];
     for (final candidate in candidates) {
       final value = candidate.trim();
@@ -473,7 +492,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     return _progress;
   }
 
-  Future<void> _saveConfig() async {
+  Future<void> _saveConfig({bool quiet = false}) async {
     final backend = _backend;
     if (backend == null) {
       throw StateError('后端未就绪');
@@ -503,15 +522,34 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           double.parse(_sentenceDurationController.text.trim())
       ..['gap_threshold'] = double.parse(_gapController.text.trim());
 
+    await backend.config.parent.create(recursive: true);
     await backend.config.writeAsString(
       const JsonEncoder.withIndent('  ').convert(config),
     );
     if (mounted) {
       setState(() {
         _config = config;
-        _appendLog('已保存配置：${backend.config.path}');
+        if (!quiet) {
+          _appendLog('已保存配置：${backend.config.path}');
+        }
       });
     }
+  }
+
+  void _scheduleConfigSave() {
+    _configSaveDebounce?.cancel();
+    _configSaveDebounce = Timer(const Duration(milliseconds: 600), () async {
+      if (!mounted || _backend == null || _isBusy) {
+        return;
+      }
+      try {
+        await _saveConfig(quiet: true);
+      } catch (error) {
+        if (mounted) {
+          setState(() => _appendLog('自动保存配置失败：$error'));
+        }
+      }
+    });
   }
 
   Future<void> _pickDirectory(
@@ -559,25 +597,43 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     }
   }
 
-  void _setModelPreset(String value) {
-    setState(() {
-      _modelPreset = value;
-      final backend = _backend;
-      if (modelRepos.containsKey(value) && backend != null) {
-        _modelController.text = _presetModelPath(backend, value);
-      }
-    });
+  void _applyModelPreset(String value) {
+    _modelPreset = value;
+    final backend = _backend;
+    if (modelRepos.containsKey(value) && backend != null) {
+      _modelController.text = _presetModelPath(backend, value);
+    }
+  }
+
+  Future<void> _selectModelPreset(String value) async {
+    setState(() => _applyModelPreset(value));
+    try {
+      await _saveConfig(quiet: true);
+    } catch (error) {
+      _showMessage('保存模型选择失败：$error');
+    }
   }
 
   void _setCustomModelPath(String path) {
     _modelPreset = customModelPreset;
     _modelController.text = path;
+    _scheduleConfigSave();
+  }
+
+  Future<void> _selectCustomModelPreset() async {
+    setState(() => _modelPreset = customModelPreset);
+    try {
+      await _saveConfig(quiet: true);
+    } catch (error) {
+      _showMessage('保存模型选择失败：$error');
+    }
   }
 
   void _markCustomModel() {
     if (_modelPreset != customModelPreset) {
       setState(() => _modelPreset = customModelPreset);
     }
+    _scheduleConfigSave();
   }
 
   Future<void> _runTranscription(
@@ -625,7 +681,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       return;
     }
     try {
-      _setModelPreset(model);
+      setState(() => _applyModelPreset(model));
       await _saveConfig();
       await _startProcess(
         ['--emit-progress', '--download-model', model],
@@ -668,7 +724,8 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       _progressIndeterminate = true;
       _progress = 0;
       _progressText = title;
-      _currentVideo = downloading ? '模型：$_modelPreset' : '当前视频：准备中';
+      _currentVideo =
+          downloading ? '当前阶段：准备下载模型 · $_modelPreset' : '当前阶段：$title';
       _appendLog('> ${backend.displayCommand} ${args.join(' ')}');
     });
 
@@ -705,9 +762,10 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     if (!mounted) {
       return;
     }
-    if (line.startsWith(progressPrefix)) {
+    final progressLine = line.trimLeft();
+    if (progressLine.startsWith(progressPrefix)) {
       try {
-        final event = jsonDecode(line.substring(progressPrefix.length))
+        final event = jsonDecode(progressLine.substring(progressPrefix.length))
             as Map<String, dynamic>;
         _handleProgressEvent(event);
       } catch (_) {
@@ -731,34 +789,53 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           break;
         case 'progress':
           final percent = (event['percent'] as num?)?.toDouble() ?? 0;
+          final stage = '${event['stage'] ?? '转录中'}';
           _progressIndeterminate = false;
           _progress = percent / 100;
-          _progressText = '转录中 ${percent.toStringAsFixed(0)}%  '
+          _progressText = '$stage ${percent.toStringAsFixed(0)}%  '
               '${event['current'] ?? 0}/${event['duration'] ?? 0}s';
+          final name = '${event['name'] ?? ''}'.trim();
+          if (name.isNotEmpty) {
+            _currentVideo = '当前阶段：$stage · $name';
+          }
           break;
         case 'stage':
           final percent = (event['percent'] as num?)?.toDouble();
+          final stage = '${event['stage'] ?? '处理中'}';
           _progressIndeterminate = percent == null;
           if (percent != null) {
             _progress = percent / 100;
           }
-          _progressText = '${event['stage'] ?? '处理中'}';
-          if (event['name'] != null) {
-            _currentVideo = '当前视频：${event['name']}';
-          }
+          _progressText = stage;
+          final name = '${event['name'] ?? ''}'.trim();
+          _currentVideo = name.isEmpty ? '当前阶段：$stage' : '当前阶段：$stage · $name';
+          _appendLog(name.isEmpty ? '阶段：$stage' : '阶段：$stage  $name');
           break;
         case 'video_done':
+          final name = '${event['name'] ?? ''}'.trim();
+          final status = '${event['status'] ?? ''}';
           _progressIndeterminate = false;
           _progress = 1;
-          _progressText = '当前视频完成';
+          _progressText = status == 'skip'
+              ? '已跳过当前视频'
+              : status == 'fail'
+                  ? '当前视频失败'
+                  : '当前视频完成';
+          if (name.isNotEmpty) {
+            _currentVideo = '完成：$name';
+          }
           break;
         case 'model_download_start':
           _progressIndeterminate = true;
-          _currentVideo = '模型：${event['name']}';
+          _currentVideo = '当前阶段：模型下载 · ${event['name']}';
           _progressText = '正在下载模型';
+          _appendLog('阶段：模型下载  ${event['name']}');
           break;
         case 'runtime':
           _progressIndeterminate = true;
+          _progressText =
+              '加载模型（${event['device'] ?? '-'} / ${event['compute_type'] ?? '-'}）';
+          _currentVideo = '当前阶段：模型加载';
           _appendLog(
             '运行设备：${event['device']}  计算精度：${event['compute_type']}',
           );
@@ -768,6 +845,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           _progressIndeterminate = false;
           _progress = 1;
           _progressText = ok ? '环境自检通过' : '环境自检发现问题';
+          _currentVideo = ok ? '当前阶段：环境自检通过' : '当前阶段：环境自检发现问题';
           _appendLog(
             '环境自检：${ok ? '通过' : '未通过'}  '
             'CUDA 设备：${event['cuda_device_count'] ?? 0}  '
@@ -779,6 +857,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           _progressIndeterminate = false;
           _progress = 1;
           _progressText = '模型下载完成';
+          _currentVideo = '完成：模型 ${event['name']}';
           _appendLog('模型下载完成：${event['target']}');
           break;
       }
@@ -863,8 +942,8 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                             child: IconButton.filledTonal(
                               onPressed: _stopProcess,
                               style: IconButton.styleFrom(
-                                fixedSize: const Size(56, 56),
-                                iconSize: 28,
+                                fixedSize: const Size(64, 64),
+                                iconSize: 32,
                               ),
                               icon: const Icon(Icons.stop_circle_outlined),
                             ),
@@ -872,8 +951,8 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                         : Tooltip(
                             message: '当前没有任务',
                             child: Container(
-                              width: 52,
-                              height: 52,
+                              width: 58,
+                              height: 58,
                               decoration: BoxDecoration(
                                 color: Theme.of(context)
                                     .colorScheme
@@ -882,7 +961,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                               ),
                               child: Icon(
                                 Icons.check_circle_outline,
-                                size: 28,
+                                size: 32,
                                 color: Theme.of(context).colorScheme.outline,
                               ),
                             ),
@@ -1028,7 +1107,11 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
               ),
               const SizedBox(height: 8),
               LinearProgressIndicator(
-                minHeight: 6,
+                minHeight: 9,
+                borderRadius: BorderRadius.circular(999),
+                backgroundColor:
+                    Theme.of(context).colorScheme.surfaceContainerHighest,
+                color: Theme.of(context).colorScheme.primary,
                 value: _progressIndeterminate ? null : _boundedProgress,
               ),
               const SizedBox(height: 8),
@@ -1077,7 +1160,9 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
               repo: entry.value,
               groupValue: _modelPreset,
               path: backend == null ? '' : _presetModelPath(backend, entry.key),
-              onSelect: _isBusy ? null : () => _setModelPreset(entry.key),
+              onSelect: _isBusy
+                  ? null
+                  : () => unawaited(_selectModelPreset(entry.key)),
               onDownload: _isBusy ? null : () => _downloadModel(entry.key),
             ),
             const Divider(height: 1),
@@ -1087,9 +1172,8 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
             contentPadding: EdgeInsets.zero,
             value: customModelPreset,
             groupValue: _modelPreset,
-            onChanged: _isBusy
-                ? null
-                : (_) => setState(() => _modelPreset = customModelPreset),
+            onChanged:
+                _isBusy ? null : (_) => unawaited(_selectCustomModelPreset()),
             title: const Text('自定义模型目录'),
           ),
           _PathField(
