@@ -198,6 +198,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   final _httpProxyController = TextEditingController();
   final _httpsProxyController = TextEditingController();
   final _hfEndpointController = TextEditingController();
+  final _logScrollController = ScrollController();
 
   BackendPaths? _backend;
   Map<String, dynamic> _config = {};
@@ -245,6 +246,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     _httpProxyController.dispose();
     _httpsProxyController.dispose();
     _hfEndpointController.dispose();
+    _logScrollController.dispose();
     super.dispose();
   }
 
@@ -316,6 +318,16 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     if (_logs.length > 600) {
       _logs.removeRange(0, _logs.length - 600);
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_logScrollController.hasClients) {
+        return;
+      }
+      _logScrollController.animateTo(
+        _logScrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   String _presetModelPath(BackendPaths backend, String preset) {
@@ -792,23 +804,26 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
               ),
               destinations: destinations,
               trailing: Expanded(
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  child: _isBusy
-                      ? Tooltip(
-                          message: '停止当前任务',
-                          child: IconButton.filledTonal(
-                            onPressed: _stopProcess,
-                            icon: const Icon(Icons.stop_circle_outlined),
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 64),
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: _isBusy
+                        ? Tooltip(
+                            message: '停止当前任务',
+                            child: IconButton.filledTonal(
+                              onPressed: _stopProcess,
+                              icon: const Icon(Icons.stop_circle_outlined),
+                            ),
+                          )
+                        : Tooltip(
+                            message: '当前没有任务',
+                            child: Icon(
+                              Icons.check_circle_outline,
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
                           ),
-                        )
-                      : Tooltip(
-                          message: '当前没有任务',
-                          child: Icon(
-                            Icons.check_circle_outline,
-                            color: Theme.of(context).colorScheme.outline,
-                          ),
-                        ),
+                  ),
                 ),
               ),
             ),
@@ -845,132 +860,130 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
 
   Widget _buildTranscribePage() {
     return _PageBody(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _SectionHeader(
-            title: '任务',
-            action: TextButton.icon(
-              onPressed: _isBusy ? null : _saveConfig,
-              icon: const Icon(Icons.save_outlined),
-              label: const Text('保存配置'),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _PathField(
-            label: '视频根目录',
-            controller: _sourceController,
-            icon: Icons.folder_open_outlined,
-            onPick: _isBusy ? null : () => _pickDirectory(_sourceController),
-          ),
-          const SizedBox(height: 12),
-          _PathField(
-            label: '字幕输出目录',
-            controller: _outputController,
-            icon: Icons.output_outlined,
-            onPick: _isBusy ? null : () => _pickDirectory(_outputController),
-          ),
-          const SizedBox(height: 12),
-          _PathField(
-            label: '单个视频',
-            controller: _singleFileController,
-            icon: Icons.movie_outlined,
-            onPick: _isBusy ? null : _pickVideo,
-            onClear: _isBusy
-                ? null
-                : () => setState(() => _singleFileController.clear()),
-          ),
-          const SizedBox(height: 18),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final logHeight = constraints.maxHeight < 760 ? 220.0 : 280.0;
+          return ListView(
             children: [
-              SizedBox(
-                width: 130,
-                child: TextFormField(
-                  controller: _limitController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: '处理数量'),
+              _SectionHeader(
+                title: '任务',
+                action: TextButton.icon(
+                  onPressed: _isBusy ? null : _saveConfig,
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('保存配置'),
                 ),
               ),
-              FilterChip(
-                label: const Text('覆盖已有字幕'),
-                selected: _force,
-                onSelected:
-                    _isBusy ? null : (value) => setState(() => _force = value),
+              const SizedBox(height: 12),
+              _PathField(
+                label: '视频根目录',
+                controller: _sourceController,
+                icon: Icons.folder_open_outlined,
+                onPick:
+                    _isBusy ? null : () => _pickDirectory(_sourceController),
               ),
-              FilterChip(
-                label: const Text('推送到云端'),
-                selected: _pushCloud,
-                onSelected: _isBusy
+              const SizedBox(height: 12),
+              _PathField(
+                label: '字幕输出目录',
+                controller: _outputController,
+                icon: Icons.output_outlined,
+                onPick:
+                    _isBusy ? null : () => _pickDirectory(_outputController),
+              ),
+              const SizedBox(height: 12),
+              _PathField(
+                label: '单个视频',
+                controller: _singleFileController,
+                icon: Icons.movie_outlined,
+                onPick: _isBusy ? null : _pickVideo,
+                onClear: _isBusy
                     ? null
-                    : (value) => setState(() => _pushCloud = value),
+                    : () => setState(() => _singleFileController.clear()),
               ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              FilledButton.icon(
-                onPressed: _isBusy ? null : () => _runTranscription(),
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('批量转录'),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 130,
+                    child: TextFormField(
+                      controller: _limitController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: '处理数量'),
+                    ),
+                  ),
+                  FilterChip(
+                    label: const Text('覆盖已有字幕'),
+                    selected: _force,
+                    onSelected: _isBusy
+                        ? null
+                        : (value) => setState(() => _force = value),
+                  ),
+                  FilterChip(
+                    label: const Text('推送到云端'),
+                    selected: _pushCloud,
+                    onSelected: _isBusy
+                        ? null
+                        : (value) => setState(() => _pushCloud = value),
+                  ),
+                ],
               ),
-              OutlinedButton.icon(
-                onPressed:
-                    _isBusy ? null : () => _runTranscription(single: true),
-                icon: const Icon(Icons.play_circle_outline),
-                label: const Text('转录单文件'),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  FilledButton.icon(
+                    onPressed: _isBusy ? null : () => _runTranscription(),
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('批量转录'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed:
+                        _isBusy ? null : () => _runTranscription(single: true),
+                    icon: const Icon(Icons.play_circle_outline),
+                    label: const Text('转录单文件'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed:
+                        _isBusy ? null : () => _runTranscription(repair: true),
+                    icon: const Icon(Icons.auto_fix_high_outlined),
+                    label: const Text('修复已有字幕'),
+                  ),
+                ],
               ),
-              OutlinedButton.icon(
-                onPressed:
-                    _isBusy ? null : () => _runTranscription(repair: true),
-                icon: const Icon(Icons.auto_fix_high_outlined),
-                label: const Text('修复已有字幕'),
+              const SizedBox(height: 30),
+              const _SectionHeader(title: '当前进度'),
+              const SizedBox(height: 10),
+              Text(
+                _currentVideo,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall,
               ),
-            ],
-          ),
-          const SizedBox(height: 30),
-          const _SectionHeader(title: '当前进度'),
-          const SizedBox(height: 10),
-          Text(
-            _currentVideo,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleSmall,
-          ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: _isDownloading ? null : _boundedProgress,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _progressText,
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 30),
-          const _SectionHeader(title: '运行日志'),
-          const SizedBox(height: 10),
-          Expanded(
-            child: Container(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              padding: const EdgeInsets.all(14),
-              child: Align(
-                alignment: Alignment.topLeft,
-                child: SelectableText(
-                  _logs.isEmpty ? '等待任务输出' : _logs.join('\n'),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontFamily: 'Consolas',
-                        height: 1.45,
-                      ),
+              const SizedBox(height: 8),
+              LinearProgressIndicator(
+                value: _isDownloading ? null : _boundedProgress,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _progressText,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 30),
+              const _SectionHeader(title: '运行日志'),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: logHeight,
+                child: _LogPanel(
+                  controller: _logScrollController,
+                  lines: _logs,
                 ),
               ),
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -1332,6 +1345,43 @@ class _SectionHeader extends StatelessWidget {
         ),
         if (action != null) action!,
       ],
+    );
+  }
+}
+
+class _LogPanel extends StatelessWidget {
+  const _LogPanel({
+    required this.controller,
+    required this.lines,
+  });
+
+  final ScrollController controller;
+  final List<String> lines;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+          fontFamily: 'Consolas',
+          height: 1.45,
+        );
+    return Container(
+      color: colorScheme.surfaceContainerHighest,
+      padding: const EdgeInsets.all(14),
+      child: Scrollbar(
+        controller: controller,
+        thumbVisibility: lines.length > 6,
+        child: SingleChildScrollView(
+          controller: controller,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: SelectableText(
+              lines.isEmpty ? '等待任务输出' : lines.join('\n'),
+              style: textStyle,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
