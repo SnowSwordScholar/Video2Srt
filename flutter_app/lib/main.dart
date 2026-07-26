@@ -717,16 +717,56 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     if (backend == null) {
       throw StateError('后端未就绪');
     }
-    final process = await backend.start(args);
+    final initialStage = downloading ? '准备下载模型' : '启动后端';
+    final waitingStage = downloading ? '等待模型下载响应' : '等待后端响应';
+    final commandArgs = [
+      ...backend.baseArgs,
+      '--config',
+      backend.config.path,
+      ...args
+    ];
+
     setState(() {
-      _process = process;
       _isBusy = true;
       _progressIndeterminate = true;
       _progress = 0;
-      _progressText = title;
-      _currentVideo =
-          downloading ? '当前阶段：准备下载模型 · $_modelPreset' : '当前阶段：$title';
-      _appendLog('> ${backend.displayCommand} ${args.join(' ')}');
+      _progressText = initialStage;
+      _currentVideo = downloading
+          ? '当前阶段：$initialStage · $_modelPreset'
+          : '当前阶段：$initialStage';
+      _appendLog('任务：$title');
+      _appendLog(
+        '阶段：$initialStage${downloading ? '  $_modelPreset' : ''}',
+      );
+      _appendLog('> ${backend.executable} ${commandArgs.join(' ')}');
+    });
+
+    late final Process process;
+    try {
+      process = await backend.start(args);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _process = null;
+          _isBusy = false;
+          _progressIndeterminate = false;
+          _progressText = '后端启动失败';
+          _currentVideo = '当前阶段：后端启动失败';
+          _appendLog('后端启动失败：$error');
+        });
+      }
+      rethrow;
+    }
+
+    setState(() {
+      _process = process;
+      _progressText = waitingStage;
+      _currentVideo = downloading
+          ? '当前阶段：$waitingStage · $_modelPreset'
+          : '当前阶段：$waitingStage';
+      _appendLog(
+        '阶段：$waitingStage${downloading ? '  $_modelPreset' : ''}',
+      );
     });
 
     _stdoutSub = process.stdout
