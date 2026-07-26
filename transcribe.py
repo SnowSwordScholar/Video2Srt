@@ -1048,6 +1048,7 @@ def materialize_video(
         src_size = src.stat().st_size
         if cache_path.exists() and cache_path.stat().st_size == src_size:
             emit_progress(progress_enabled, "stage", stage="复用本地缓存", name=name)
+            log.info(f"  复用本地缓存: {cache_path}")
             return cache_path
         emit_progress(
             progress_enabled,
@@ -1056,6 +1057,7 @@ def materialize_video(
             name=name,
             bytes=src_size,
         )
+        log.info(f"  复制到本地缓存: {cache_path}")
         tmp = cache_path.with_name(cache_path.name + ".part")
         if tmp.exists():
             tmp.unlink()

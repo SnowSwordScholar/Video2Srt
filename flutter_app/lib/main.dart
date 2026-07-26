@@ -217,6 +217,7 @@ class BackendPaths {
         ...Platform.environment,
         'PYTHONIOENCODING': 'utf-8',
         'PYTHONUTF8': '1',
+        'PYTHONUNBUFFERED': '1',
       },
     );
   }
@@ -252,6 +253,10 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   Process? _process;
   StreamSubscription<String>? _stdoutSub;
   StreamSubscription<String>? _stderrSub;
+  Timer? _logFilePoller;
+  File? _fallbackLogFile;
+  int _fallbackLogOffset = 0;
+  bool _receivedBackendOutput = false;
   int _pageIndex = 0;
   String _modelPreset = 'large-v3';
   String _device = 'auto';
@@ -279,6 +284,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   void dispose() {
     _stdoutSub?.cancel();
     _stderrSub?.cancel();
+    _stopLogFileFallback();
     _process?.kill();
     _sourceController.dispose();
     _outputController.dispose();
@@ -396,6 +402,14 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     final backend = _backend;
     final value = raw.trim();
     if (value.isEmpty || _isAbsolutePath(value) || backend == null) {
+      return value;
+    }
+    return '${backend.dataRoot.path}${Platform.pathSeparator}$value';
+  }
+
+  String _resolveAgainstDataRoot(BackendPaths backend, String raw) {
+    final value = raw.trim();
+    if (value.isEmpty || _isAbsolutePath(value)) {
       return value;
     }
     return '${backend.dataRoot.path}${Platform.pathSeparator}$value';
@@ -636,6 +650,163 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     _scheduleConfigSave();
   }
 
+  Future<void> _startLogFileFallback(BackendPaths backend) async {
+    _stopLogFileFallback();
+    final logPath = _resolveAgainstDataRoot(
+      backend,
+      '${_config['log_file'] ?? 'progress.log'}',
+    );
+    if (logPath.trim().isEmpty) {
+      return;
+    }
+    final file = File(logPath);
+    _fallbackLogFile = file;
+    _fallbackLogOffset = await file.exists() ? await file.length() : 0;
+    _receivedBackendOutput = false;
+    _logFilePoller = Timer.periodic(const Duration(seconds: 1), (_) {
+      unawaited(_pollLogFileFallback());
+    });
+  }
+
+  void _stopLogFileFallback() {
+    _logFilePoller?.cancel();
+    _logFilePoller = null;
+    _fallbackLogFile = null;
+  }
+
+  Future<void> _pollLogFileFallback() async {
+    if (_receivedBackendOutput || !_isBusy) {
+      return;
+    }
+    final file = _fallbackLogFile;
+    if (file == null || !await file.exists()) {
+      return;
+    }
+    final length = await file.length();
+    if (length < _fallbackLogOffset) {
+      _fallbackLogOffset = 0;
+    }
+    if (length == _fallbackLogOffset) {
+      return;
+    }
+
+    final start = _fallbackLogOffset;
+    final reader = await file.open();
+    try {
+      await reader.setPosition(start);
+      final bytes = await reader.read(length - start);
+      _fallbackLogOffset = length;
+      final lines = const Utf8Decoder(allowMalformed: true)
+          .convert(bytes)
+          .split(RegExp(r'\r?\n'))
+          .map((line) => line.trimRight())
+          .where((line) => line.trim().isNotEmpty)
+          .toList();
+      if (!mounted || lines.isEmpty || _receivedBackendOutput) {
+        return;
+      }
+      setState(() {
+        for (final line in lines) {
+          _appendLog(line);
+          _applyLogLineStatus(line);
+        }
+      });
+    } finally {
+      await reader.close();
+    }
+  }
+
+  void _applyLogLineStatus(String line) {
+    final message =
+        line.replaceFirst(RegExp(r'^\d\d:\d\d:\d\d\s+\w+\s+'), '').trim();
+    if (message.isEmpty) {
+      return;
+    }
+
+    if (message.startsWith('共 ') && message.contains('个视频待处理。加载模型')) {
+      _progressIndeterminate = true;
+      _progressText = message.replaceAll('...', '');
+      _currentVideo = '当前阶段：加载模型';
+      return;
+    }
+    if (message.startsWith('运行设备:')) {
+      _progressIndeterminate = true;
+      final match =
+          RegExp(r'运行设备:\s+(\S+)\s+计算精度:\s+(\S+)').firstMatch(message);
+      if (match != null) {
+        _progressText = '加载模型（${match.group(1)} / ${match.group(2)}）';
+      } else {
+        _progressText = '加载模型';
+      }
+      _currentVideo = '当前阶段：模型加载';
+      return;
+    }
+    if (message.startsWith('模型就绪')) {
+      _progressIndeterminate = true;
+      _progressText = '模型就绪，开始转录';
+      _currentVideo = '当前阶段：模型就绪';
+      return;
+    }
+    if (message.startsWith('本地缓存:')) {
+      final path = message.substring('本地缓存:'.length).trim();
+      _progressIndeterminate = true;
+      _progressText = '本地缓存就绪';
+      _currentVideo = '当前阶段：本地缓存就绪 · ${_basename(path)}';
+      return;
+    }
+    if (message.startsWith('复制到本地缓存:')) {
+      final path = message.substring('复制到本地缓存:'.length).trim();
+      _progressIndeterminate = true;
+      _progressText = '复制到本地缓存';
+      _currentVideo = '当前阶段：复制到本地缓存 · ${_basename(path)}';
+      return;
+    }
+    if (message.startsWith('复用本地缓存:')) {
+      final path = message.substring('复用本地缓存:'.length).trim();
+      _progressIndeterminate = true;
+      _progressText = '复用本地缓存';
+      _currentVideo = '当前阶段：复用本地缓存 · ${_basename(path)}';
+      return;
+    }
+
+    final item = RegExp(r'^\[(\d+)/(\d+)\]\s+(OK|SKIP|FAIL)\s+(.+)$')
+        .firstMatch(message);
+    if (item != null) {
+      final index = int.tryParse(item.group(1) ?? '') ?? 0;
+      final total = int.tryParse(item.group(2) ?? '') ?? 0;
+      final status = item.group(3) ?? '';
+      if (total > 0) {
+        _progress = index / total;
+      }
+      _progressIndeterminate = false;
+      _progressText = status == 'OK'
+          ? '完成 $index/$total'
+          : status == 'SKIP'
+              ? '跳过 $index/$total'
+              : '失败 $index/$total';
+      _currentVideo = '当前视频：${item.group(4)}';
+      return;
+    }
+    if (message.startsWith('完成。')) {
+      _progressIndeterminate = false;
+      _progress = 1;
+      _progressText = '任务完成';
+      _currentVideo = '当前阶段：全部完成';
+      return;
+    }
+    if (message.startsWith('转录 ') && message.contains('次失败')) {
+      _progressIndeterminate = true;
+      _progressText = '转录重试中';
+      _currentVideo = '当前阶段：转录重试';
+    }
+  }
+
+  String _basename(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    final index = normalized.lastIndexOf('/');
+    return index >= 0 ? normalized.substring(index + 1) : normalized;
+  }
+
   Future<void> _runTranscription(
       {bool repair = false, bool single = false}) async {
     if (_isBusy) {
@@ -741,10 +912,13 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       _appendLog('> ${backend.executable} ${commandArgs.join(' ')}');
     });
 
+    await _startLogFileFallback(backend);
+
     late final Process process;
     try {
       process = await backend.start(args);
     } catch (error) {
+      _stopLogFileFallback();
       if (mounted) {
         setState(() {
           _process = null;
@@ -783,6 +957,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     });
 
     final exitCode = await process.exitCode;
+    _stopLogFileFallback();
     await _stdoutSub?.cancel();
     await _stderrSub?.cancel();
     if (!mounted) {
@@ -802,6 +977,8 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     if (!mounted) {
       return;
     }
+    _receivedBackendOutput = true;
+    _stopLogFileFallback();
     final progressLine = line.trimLeft();
     if (progressLine.startsWith(progressPrefix)) {
       try {
