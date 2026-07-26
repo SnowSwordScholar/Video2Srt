@@ -1317,14 +1317,16 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                         ? null
                         : (value) => setState(() => _force = value),
                   ),
-                  FilterChip(
-                    label: const Text('推送到源目录'),
-                    selected: _pushToSource,
-                    onSelected: _isBusy
-                        ? null
-                        : (value) => setState(() => _pushToSource = value),
-                  ),
                 ],
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                secondary: const Icon(Icons.drive_file_move_outline),
+                title: const Text('推送到源目录'),
+                value: _pushToSource,
+                onChanged: _isBusy
+                    ? null
+                    : (value) => setState(() => _pushToSource = value),
               ),
               const SizedBox(height: 18),
               Wrap(
