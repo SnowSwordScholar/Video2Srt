@@ -8,6 +8,8 @@ param(
 
     [string]$RuntimePath = "",
 
+    [string]$PackageRoot = "",
+
     [switch]$SkipFlutterBuild,
 
     [switch]$IncludeModels,
@@ -19,7 +21,18 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $FlutterRoot = Join-Path $RepoRoot "flutter_app"
-$PackageRoot = Join-Path $RepoRoot "dist\Video2Srt"
+$PackageRoot = if ($PackageRoot) {
+    $rawPackageRoot = if ([System.IO.Path]::IsPathRooted($PackageRoot)) {
+        $PackageRoot
+    }
+    else {
+        Join-Path $RepoRoot $PackageRoot
+    }
+    [System.IO.Path]::GetFullPath($rawPackageRoot)
+}
+else {
+    Join-Path $RepoRoot "dist\Video2Srt"
+}
 $BackendRoot = Join-Path $PackageRoot "backend"
 $FlutterRelease = Join-Path $FlutterRoot "build\windows\x64\runner\Release"
 
@@ -156,7 +169,7 @@ if (-not (Test-Path -LiteralPath $FlutterRelease)) {
     throw "Flutter release output not found: $FlutterRelease"
 }
 
-Assert-UnderDirectory -Path $PackageRoot -Parent (Join-Path $RepoRoot "dist")
+Assert-UnderDirectory -Path $PackageRoot -Parent $RepoRoot
 if (Test-Path -LiteralPath $PackageRoot) {
     Remove-Item -LiteralPath $PackageRoot -Recurse -Force
 }

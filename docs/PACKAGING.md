@@ -16,6 +16,13 @@ target machine having Python installed:
 The result is placed in `dist\Video2Srt`. Start `Video2Srt.exe`; the backend is
 in `backend\transcribe.exe`.
 
+To test a package without replacing a running app, pass another in-repo output
+directory:
+
+```powershell
+.\scripts\build_windows.ps1 -PackageRoot build\Video2Srt-package
+```
+
 The package intentionally excludes models. On first use, download a model in
 the GUI's model page. This keeps the release smaller and avoids redistributing
 large model files by accident.
