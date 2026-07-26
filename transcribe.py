@@ -15,7 +15,7 @@ r"""批量转录视频生成中文字幕 SRT。
     .venv\Scripts\python.exe transcribe.py --force
 
     # 本地写完后同步推送一份到源视频同目录
-    .venv\Scripts\python.exe transcribe.py --push-cloud
+    .venv\Scripts\python.exe transcribe.py --push-source
 
     # 只修复已有字幕的时间轴、换行和少量重复毛边，不重新转录
     .venv\Scripts\python.exe transcribe.py --repair-existing
@@ -98,6 +98,7 @@ class AppConfig:
     preserve_source_root_name: bool = True
     use_local_cache: bool = True
     delete_cache_after: bool = True
+    push_to_source: bool = False
 
     device: str = "auto"
     compute_type: str = "default"
@@ -250,6 +251,8 @@ def apply_cli_overrides(cfg: AppConfig, args: argparse.Namespace) -> AppConfig:
         cfg.delete_cache_after = False
     if args.no_preserve_source_root:
         cfg.preserve_source_root_name = False
+    if args.push_source or args.push_cloud:
+        cfg.push_to_source = True
     return normalize_config(cfg)
 
 
@@ -925,28 +928,28 @@ def repair_srt_file(path: Path, cfg: AppConfig) -> int:
     return len(fixed)
 
 
-def cloud_push(local_srt: Path, src_video: Path, cfg: AppConfig, log):
-    """把本地 srt 复制到云端视频同目录（同名 .srt）。失败记录到 cloud_failed。"""
-    cloud_srt = src_video.with_suffix(".srt")
+def push_to_source_dir(local_srt: Path, src_video: Path, cfg: AppConfig, log):
+    """把本地 srt 复制到源视频同目录（同名 .srt）。失败记录到 cloud_failed。"""
+    source_srt = src_video.with_suffix(".srt")
     data = local_srt.read_bytes()
 
     def _write():
-        cloud_srt.write_bytes(data)
+        source_srt.write_bytes(data)
 
     try:
         with_retry(
             _write,
-            desc=f"推送 {cloud_srt.name}",
+            desc=f"推送 {source_srt.name}",
             max_retries=cfg.io_retry,
             base_delay=cfg.io_retry_delay,
             log=log,
         )
         return True
     except Exception as e:
-        log.error(f"  云端推送失败: {e}")
+        log.error(f"  源目录推送失败: {e}")
         cfg.cloud_failed.parent.mkdir(parents=True, exist_ok=True)
         with open(cfg.cloud_failed, "a", encoding="utf-8") as f:
-            f.write(f"{local_srt}\t{cloud_srt}\n")
+            f.write(f"{local_srt}\t{source_srt}\n")
         return False
 
 
@@ -1167,9 +1170,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--limit", type=int, help="只处理前 N 个")
     ap.add_argument("--force", action="store_true", help="覆盖已有 srt")
     ap.add_argument(
-        "--push-cloud",
+        "--push-source",
         action="store_true",
         help="本地写完后同步推送一份到源视频同目录",
+    )
+    ap.add_argument(
+        "--push-cloud",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     ap.add_argument("--repair-existing", action="store_true", help="修复已有 SRT")
     ap.add_argument("--repair-file", help="只修复一个 SRT 文件")
@@ -1254,8 +1262,9 @@ def main():
         repair_existing_srt(cfg, log)
         return
 
-    if args.push_cloud:
-        log.info("已开启云端推送：每个视频完成后同步到源视频同目录")
+    push_to_source = bool(cfg.push_to_source)
+    if push_to_source:
+        log.info("已开启源目录推送：每个视频完成后同步到源视频同目录")
     if cfg.use_local_cache:
         log.info(f"已开启本地视频缓存: {cfg.cache_dir}")
 
@@ -1286,10 +1295,10 @@ def main():
             percent=0,
         )
         if srt.exists() and not args.force and is_srt_usable(srt):
-            if args.push_cloud:
-                cloud_srt = v.with_suffix(".srt")
-                if not cloud_srt.exists():
-                    if cloud_push(srt, v, cfg, log):
+            if push_to_source:
+                source_srt = v.with_suffix(".srt")
+                if not source_srt.exists():
+                    if push_to_source_dir(srt, v, cfg, log):
                         pushed += 1
             log.info(f"[{i}/{len(videos)}] SKIP {rel}")
             emit_progress(
@@ -1318,10 +1327,10 @@ def main():
                 f"[{i}/{len(videos)}] OK  {len(sentences):3d}句 "
                 f"{dt:6.1f}s  {rel.name}"
             )
-            if args.push_cloud:
-                if cloud_push(srt, v, cfg, log):
+            if push_to_source:
+                if push_to_source_dir(srt, v, cfg, log):
                     pushed += 1
-                    msg += "  [已推云]"
+                    msg += "  [已推源目录]"
             log.info(msg)
             emit_progress(
                 args.emit_progress,
@@ -1347,10 +1356,10 @@ def main():
 
     log.info(
         f"完成。成功 {ok} 失败 {fail} 跳过 {skip}"
-        + (f" 推云 {pushed}" if args.push_cloud else "")
+        + (f" 推源目录 {pushed}" if push_to_source else "")
     )
     if cfg.cloud_failed.exists() and cfg.cloud_failed.stat().st_size > 0:
-        log.info(f"部分云端推送失败，见 {cfg.cloud_failed}")
+        log.info(f"部分源目录推送失败，见 {cfg.cloud_failed}")
 
 
 if __name__ == "__main__":

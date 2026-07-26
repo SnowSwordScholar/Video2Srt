@@ -17,6 +17,7 @@
   "preserve_source_root_name": true,
   "use_local_cache": true,
   "delete_cache_after": true,
+  "push_to_source": false,
   "device": "auto",
   "compute_type": "default",
   "http_proxy": "",

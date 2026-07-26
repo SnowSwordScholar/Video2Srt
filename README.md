@@ -49,7 +49,7 @@ Copy-Item config.example.json config.json
 .\.venv\Scripts\python.exe transcribe.py --force
 
 # 把完成的字幕同步到源视频所在目录
-.\.venv\Scripts\python.exe transcribe.py --push-cloud
+.\.venv\Scripts\python.exe transcribe.py --push-source
 
 # 只修复已有 SRT 的时间轴、重复片段和换行
 .\.venv\Scripts\python.exe transcribe.py --repair-existing
@@ -98,6 +98,7 @@ CPU 可以正常运行，但 `large-v3` 对长视频会明显更慢；可按机�
 - `model_base`：模型目录，默认 `models/large-v3`。
 - `preserve_source_root_name`：默认 `true`，保留源目录最外层名称。
 - `use_local_cache`：先复制视频到本地缓存后转录，适合网络盘或 WebDAV。
+- `push_to_source`：默认 `false`，开启后把完成的字幕同步到源视频所在目录。
 - `max_chars_per_line`、`max_chars_per_sentence`、`max_sentence_duration`、`gap_threshold`：控制字幕长度和断句。
 - `http_proxy`、`https_proxy`：模型下载使用的代理地址，例如 `http://127.0.0.1:7890`。
 - `hf_endpoint`：可选的 Hugging Face endpoint / 镜像地址。

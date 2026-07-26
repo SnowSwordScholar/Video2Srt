@@ -293,7 +293,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   bool _useLocalCache = true;
   bool _deleteCache = true;
   bool _force = false;
-  bool _pushCloud = false;
+  bool _pushToSource = false;
   bool _isBusy = false;
   bool _progressIndeterminate = false;
   double _progress = 0;
@@ -379,6 +379,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
         _preserveRoot = config['preserve_source_root_name'] != false;
         _useLocalCache = config['use_local_cache'] != false;
         _deleteCache = config['delete_cache_after'] != false;
+        _pushToSource = config['push_to_source'] == true;
         _appendLog('后端目录：${backend.root.path}');
         _appendLog('后端命令：${backend.displayCommand}');
         _appendLog('配置文件：${backend.config.path}');
@@ -552,6 +553,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       ..['preserve_source_root_name'] = _preserveRoot
       ..['use_local_cache'] = _useLocalCache
       ..['delete_cache_after'] = _deleteCache
+      ..['push_to_source'] = _pushToSource
       ..['device'] = _device
       ..['compute_type'] = _computeType
       ..['http_proxy'] = _httpProxyController.text.trim()
@@ -872,8 +874,8 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
         if (_force) {
           args.add('--force');
         }
-        if (_pushCloud) {
-          args.add('--push-cloud');
+        if (_pushToSource) {
+          args.add('--push-source');
         }
       }
       await _startProcess(args, title: repair ? '修复已有字幕' : '开始转录');
@@ -1316,11 +1318,11 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                         : (value) => setState(() => _force = value),
                   ),
                   FilterChip(
-                    label: const Text('推送到云端'),
-                    selected: _pushCloud,
+                    label: const Text('推送到源目录'),
+                    selected: _pushToSource,
                     onSelected: _isBusy
                         ? null
-                        : (value) => setState(() => _pushCloud = value),
+                        : (value) => setState(() => _pushToSource = value),
                   ),
                 ],
               ),

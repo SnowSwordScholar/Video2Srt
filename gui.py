@@ -42,6 +42,7 @@ def load_config() -> dict:
         "preserve_source_root_name": True,
         "use_local_cache": True,
         "delete_cache_after": True,
+        "push_to_source": False,
         "max_chars_per_line": 18,
         "max_chars_per_sentence": 32,
         "max_sentence_duration": 5.5,
@@ -64,7 +65,9 @@ class Video2SrtGui(tk.Tk):
         self.file_var = tk.StringVar()
         self.limit_var = tk.StringVar()
         self.force_var = tk.BooleanVar(value=False)
-        self.push_cloud_var = tk.BooleanVar(value=False)
+        self.push_to_source_var = tk.BooleanVar(
+            value=bool(self.config_data.get("push_to_source", False))
+        )
         self.status_var = tk.StringVar(value="就绪")
         self.model_preset_var = tk.StringVar(value=self._infer_model_preset())
         self.current_video_var = tk.StringVar(value="当前视频：-")
@@ -107,7 +110,11 @@ class Video2SrtGui(tk.Tk):
         ttk.Checkbutton(options, text="覆盖已有字幕", variable=self.force_var).grid(
             row=0, column=3, padx=(18, 0), sticky="w"
         )
-        ttk.Checkbutton(options, text="推送到云端", variable=self.push_cloud_var).grid(
+        ttk.Checkbutton(
+            options,
+            text="推送到源目录",
+            variable=self.push_to_source_var,
+        ).grid(
             row=0, column=4, padx=(18, 0), sticky="w"
         )
         ttk.Label(options, text="数量").grid(row=0, column=5, padx=(18, 4))
@@ -270,6 +277,7 @@ class Video2SrtGui(tk.Tk):
             messagebox.showwarning("Video2Srt", f"参数格式不正确: {e}")
             return False
         data["model_preset"] = self.model_preset_var.get()
+        data["push_to_source"] = self.push_to_source_var.get()
         CONFIG_PATH.write_text(
             json.dumps(data, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
@@ -292,8 +300,8 @@ class Video2SrtGui(tk.Tk):
     def _add_common_flags(self, cmd: list[str]) -> list[str]:
         if self.force_var.get():
             cmd.append("--force")
-        if self.push_cloud_var.get():
-            cmd.append("--push-cloud")
+        if self.push_to_source_var.get():
+            cmd.append("--push-source")
         limit = self.limit_var.get().strip()
         if limit:
             cmd.extend(["--limit", limit])
