@@ -23,6 +23,15 @@ directory:
 .\scripts\build_windows.ps1 -PackageRoot build\Video2Srt-package
 ```
 
+To build an installer with Inno Setup:
+
+```powershell
+.\scripts\build_installer.ps1
+```
+
+This first creates the portable package in `build\Video2Srt-package`, then
+writes an installer to `dist\installer`.
+
 The package intentionally excludes models. On first use, download a model in
 the GUI's model page. This keeps the release smaller and avoids redistributing
 large model files by accident.
@@ -33,7 +42,9 @@ local `config.json`.
 
 ## CPU And CUDA
 
-The default package profile is `cpu`. This is the safest public target:
+The default package profile is `cpu`. This is a packaging label written to
+`backend\backend_manifest.json`, not the same thing as forcing the runtime
+device to CPU. It is the safest public target:
 
 - `device: auto` selects `cuda + float16` when CTranslate2 can see a CUDA
   device.
