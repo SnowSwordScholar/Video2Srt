@@ -4,9 +4,18 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 const String progressPrefix = '__VIDEO2SRT_PROGRESS__ ';
 const String customModelPreset = 'custom';
+const Locale appLocale = Locale('zh', 'CN');
+const String windowsFontFamily = 'Microsoft YaHei UI';
+const List<String> windowsFontFallback = [
+  'Microsoft YaHei',
+  'SimHei',
+  'SimSun',
+  'Segoe UI',
+];
 const Map<String, String> modelRepos = {
   'large-v2': 'Systran/faster-whisper-large-v2',
   'large-v3': 'Systran/faster-whisper-large-v3',
@@ -37,9 +46,27 @@ class Video2SrtApp extends StatelessWidget {
     return MaterialApp(
       title: 'Video2Srt',
       debugShowCheckedModeBanner: false,
+      locale: appLocale,
+      supportedLocales: const [appLocale, Locale('en', 'US')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      builder: (context, child) {
+        final content = child ?? const SizedBox.shrink();
+        if (!Platform.isWindows) {
+          return content;
+        }
+        return DefaultTextStyle.merge(
+          style: const TextStyle(
+            fontFamily: windowsFontFamily,
+            fontFamilyFallback: windowsFontFallback,
+            locale: appLocale,
+          ),
+          child: content,
+        );
+      },
       theme: ThemeData(
         useMaterial3: true,
-        fontFamily: Platform.isWindows ? 'Microsoft YaHei UI' : null,
+        fontFamily: Platform.isWindows ? windowsFontFamily : null,
+        fontFamilyFallback: Platform.isWindows ? windowsFontFallback : null,
         colorScheme: colorScheme,
         scaffoldBackgroundColor: colorScheme.surface,
         filledButtonTheme: const FilledButtonThemeData(
