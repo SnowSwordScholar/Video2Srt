@@ -39,6 +39,7 @@ class Video2SrtApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
+        fontFamily: Platform.isWindows ? 'Microsoft YaHei UI' : null,
         colorScheme: colorScheme,
         scaffoldBackgroundColor: colorScheme.surface,
         filledButtonTheme: const FilledButtonThemeData(
@@ -745,6 +746,13 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       _progressIndeterminate = true;
       _progressText = '模型就绪，开始转录';
       _currentVideo = '当前阶段：模型就绪';
+      return;
+    }
+    if (message.startsWith('正在转录:')) {
+      final name = message.substring('正在转录:'.length).trim();
+      _progressIndeterminate = true;
+      _progressText = '正在转录';
+      _currentVideo = '当前阶段：正在转录 · ${_basename(name)}';
       return;
     }
     if (message.startsWith('本地缓存:')) {

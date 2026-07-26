@@ -1121,6 +1121,7 @@ def process_one(
 
         def _do():
             emit_progress(progress_enabled, "stage", stage="等待转录进度", name=v.name)
+            log.info(f"  正在转录: {v.name}")
             segments = transcribe_one(model, work_video, cfg, _progress)
             sentences = reflow(segments, cfg)
             emit_progress(
