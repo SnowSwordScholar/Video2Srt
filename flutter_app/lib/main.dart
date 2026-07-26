@@ -41,6 +41,39 @@ class Video2SrtApp extends StatelessWidget {
         useMaterial3: true,
         colorScheme: colorScheme,
         scaffoldBackgroundColor: colorScheme.surface,
+        filledButtonTheme: const FilledButtonThemeData(
+          style: ButtonStyle(
+            minimumSize: WidgetStatePropertyAll(Size(0, 50)),
+            padding: WidgetStatePropertyAll(
+              EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            ),
+            textStyle: WidgetStatePropertyAll(
+              TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ),
+        outlinedButtonTheme: const OutlinedButtonThemeData(
+          style: ButtonStyle(
+            minimumSize: WidgetStatePropertyAll(Size(0, 50)),
+            padding: WidgetStatePropertyAll(
+              EdgeInsets.symmetric(horizontal: 22, vertical: 15),
+            ),
+            textStyle: WidgetStatePropertyAll(
+              TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+        textButtonTheme: const TextButtonThemeData(
+          style: ButtonStyle(
+            minimumSize: WidgetStatePropertyAll(Size(0, 46)),
+            padding: WidgetStatePropertyAll(
+              EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            ),
+            textStyle: WidgetStatePropertyAll(
+              TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: colorScheme.surfaceContainerLowest,
@@ -216,7 +249,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   bool _force = false;
   bool _pushCloud = false;
   bool _isBusy = false;
-  bool _isDownloading = false;
+  bool _progressIndeterminate = false;
   double _progress = 0;
   String _progressText = '等待任务';
   String _currentVideo = '当前视频：-';
@@ -632,7 +665,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     setState(() {
       _process = process;
       _isBusy = true;
-      _isDownloading = downloading;
+      _progressIndeterminate = true;
       _progress = 0;
       _progressText = title;
       _currentVideo = downloading ? '模型：$_modelPreset' : '当前视频：准备中';
@@ -661,7 +694,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     setState(() {
       _process = null;
       _isBusy = false;
-      _isDownloading = false;
+      _progressIndeterminate = false;
       _progress = exitCode == 0 ? 1 : _progress;
       _progressText = exitCode == 0 ? '任务完成' : '任务退出：$exitCode';
       _appendLog('进程结束，退出码 $exitCode');
@@ -690,6 +723,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     setState(() {
       switch (type) {
         case 'video_start':
+          _progressIndeterminate = true;
           _progress = 0;
           _currentVideo =
               '当前视频：[${event['index']}/${event['total']}] ${event['name']}';
@@ -697,30 +731,41 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           break;
         case 'progress':
           final percent = (event['percent'] as num?)?.toDouble() ?? 0;
+          _progressIndeterminate = false;
           _progress = percent / 100;
           _progressText = '转录中 ${percent.toStringAsFixed(0)}%  '
               '${event['current'] ?? 0}/${event['duration'] ?? 0}s';
           break;
         case 'stage':
-          final percent = (event['percent'] as num?)?.toDouble() ?? 0;
-          _progress = percent / 100;
+          final percent = (event['percent'] as num?)?.toDouble();
+          _progressIndeterminate = percent == null;
+          if (percent != null) {
+            _progress = percent / 100;
+          }
           _progressText = '${event['stage'] ?? '处理中'}';
+          if (event['name'] != null) {
+            _currentVideo = '当前视频：${event['name']}';
+          }
           break;
         case 'video_done':
+          _progressIndeterminate = false;
           _progress = 1;
           _progressText = '当前视频完成';
           break;
         case 'model_download_start':
+          _progressIndeterminate = true;
           _currentVideo = '模型：${event['name']}';
           _progressText = '正在下载模型';
           break;
         case 'runtime':
+          _progressIndeterminate = true;
           _appendLog(
             '运行设备：${event['device']}  计算精度：${event['compute_type']}',
           );
           break;
         case 'runtime_check':
           final ok = event['ok'] == true;
+          _progressIndeterminate = false;
           _progress = 1;
           _progressText = ok ? '环境自检通过' : '环境自检发现问题';
           _appendLog(
@@ -731,6 +776,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           );
           break;
         case 'model_download_done':
+          _progressIndeterminate = false;
           _progress = 1;
           _progressText = '模型下载完成';
           _appendLog('模型下载完成：${event['target']}');
@@ -743,7 +789,10 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     final process = _process;
     if (process != null) {
       process.kill();
-      setState(() => _progressText = '正在停止');
+      setState(() {
+        _progressIndeterminate = true;
+        _progressText = '正在停止';
+      });
     }
   }
 
@@ -813,14 +862,29 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                             message: '停止当前任务',
                             child: IconButton.filledTonal(
                               onPressed: _stopProcess,
+                              style: IconButton.styleFrom(
+                                fixedSize: const Size(56, 56),
+                                iconSize: 28,
+                              ),
                               icon: const Icon(Icons.stop_circle_outlined),
                             ),
                           )
                         : Tooltip(
                             message: '当前没有任务',
-                            child: Icon(
-                              Icons.check_circle_outline,
-                              color: Theme.of(context).colorScheme.outline,
+                            child: Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.check_circle_outline,
+                                size: 28,
+                                color: Theme.of(context).colorScheme.outline,
+                              ),
                             ),
                           ),
                   ),
@@ -964,12 +1028,24 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
               ),
               const SizedBox(height: 8),
               LinearProgressIndicator(
-                value: _isDownloading ? null : _boundedProgress,
+                minHeight: 6,
+                value: _progressIndeterminate ? null : _boundedProgress,
               ),
               const SizedBox(height: 8),
-              Text(
-                _progressText,
-                style: Theme.of(context).textTheme.bodySmall,
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _progressText,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  if (!_progressIndeterminate && _isBusy)
+                    Text(
+                      '${(_boundedProgress * 100).round()}%',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                ],
               ),
               const SizedBox(height: 30),
               const _SectionHeader(title: '运行日志'),

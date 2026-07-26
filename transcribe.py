@@ -1056,7 +1056,7 @@ def process_one(
 ):
     """转录单个视频（带重试）。返回 (sentences, 耗时)。"""
     t0 = time.time()
-    emit_progress(progress_enabled, "stage", stage="缓存视频", percent=0)
+    emit_progress(progress_enabled, "stage", stage="缓存视频", name=v.name)
     work_video, cached = materialize_video(v, cfg, log)
     try:
         def _progress(percent: int, current: float, duration: float) -> None:
@@ -1070,7 +1070,7 @@ def process_one(
             )
 
         def _do():
-            emit_progress(progress_enabled, "stage", stage="转录中", percent=0)
+            emit_progress(progress_enabled, "stage", stage="等待转录进度", name=v.name)
             segments = transcribe_one(model, work_video, cfg, _progress)
             sentences = reflow(segments, cfg)
             emit_progress(progress_enabled, "stage", stage="写入字幕", percent=100)
@@ -1202,12 +1202,19 @@ def main():
     if cfg.use_local_cache:
         log.info(f"已开启本地视频缓存: {cfg.cache_dir}")
 
+    emit_progress(args.emit_progress, "stage", stage="扫描视频")
     videos = find_videos(log, cfg, args.file, args.limit)
     if not videos:
         return
     log.info(f"共 {len(videos)} 个视频待处理。加载模型...")
+    emit_progress(
+        args.emit_progress,
+        "stage",
+        stage=f"加载模型（共 {len(videos)} 个视频）",
+    )
     model = build_model(cfg, log, args.emit_progress)
     log.info("模型就绪。开始转录。")
+    emit_progress(args.emit_progress, "stage", stage="模型就绪，开始转录")
 
     ok = fail = skip = pushed = 0
     for i, v in enumerate(videos, 1):
