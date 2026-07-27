@@ -84,4 +84,4 @@ For details on local environment setup, frontend-backend communication protocols
 
 ## 📄 License
 
-This project is licensed under the [GNU License](LICENSE). Feel free to submit a Pull Request or open an Issue for discussion!
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE). Feel free to submit a Pull Request or open an Issue for discussion!

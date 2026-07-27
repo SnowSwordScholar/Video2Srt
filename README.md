@@ -9,12 +9,11 @@
 </p>
 
 <p align="center">
-  <!-- 建议根据实际情况替换以下徽章的链接 -->
   <a href="https://flutter.dev/"><img src="https://img.shields.io/badge/Flutter-Material_3-02569B?logo=flutter" alt="Flutter"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10+-3776AB?logo=python" alt="Python"></a>
   <a href="https://github.com/SYSTRAN/faster-whisper"><img src="https://img.shields.io/badge/Backend-faster--whisper-brightgreen" alt="faster-whisper"></a>
-  <a href="https://github.com/your-username/Video2Srt/releases"><img src="https://img.shields.io/github/v/release/your-username/Video2Srt" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/your-username/Video2Srt" alt="License"></a>
+  <a href="https://github.com/SnowSwordScholar/Video2Srt/releases"><img src="https://img.shields.io/github/v/release/SnowSwordScholar/Video2Srt" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/SnowSwordScholar/Video2Srt" alt="License"></a>
 </p>
 
 <p align="center">
@@ -81,8 +80,8 @@ Video2Srt/
 3. 在“模型管理”中下载或指定模型库，即可开始批量转换你的视频文件！
 
 ### 针对开发者 (本地编译)
-详细的本地环境搭建、前后端通信协议以及打包流程，请参阅 [开发与构建文档](/docs/PACKAGING.md)。
+详细的本地环境搭建、前后端通信协议以及打包流程，请参阅 [开发与构建文档](docs/PACKAGING.md)。
 
 ## 📄 许可证
 
-本项目采用 [GNU License](LICENSE) 开源协议。欢迎提交 Pull Request 或发起 Issue 交流！
+本项目采用 [GNU Affero General Public License v3.0](LICENSE) 开源协议。欢迎提交 Pull Request 或发起 Issue 交流！

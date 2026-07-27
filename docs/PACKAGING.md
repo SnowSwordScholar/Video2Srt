@@ -10,7 +10,7 @@ target machine having Python installed:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\scripts\build_windows.ps1 -PackageProfile cpu
+.\scripts\build_windows.ps1
 ```
 
 The result is placed in `dist\Video2Srt`. Start `Video2Srt.exe`; the backend is
@@ -42,9 +42,9 @@ local `config.json`.
 
 ## CPU And CUDA
 
-The default package profile is `cpu`. This is a packaging label written to
+The default public package profile is `auto`. This is a packaging label written to
 `backend\backend_manifest.json`, not the same thing as forcing the runtime
-device to CPU. It is the safest public target:
+device to CUDA or CPU. It is the safest public target:
 
 - `device: auto` selects `cuda + float16` when CTranslate2 can see a CUDA
   device.
