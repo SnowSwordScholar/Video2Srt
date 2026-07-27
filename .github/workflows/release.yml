@@ -21,11 +21,13 @@ defaults:
 env:
   PYTHON_VERSION: "3.12"
   FLUTTER_VERSION: "3.24.5"
+  CMAKE_GENERATOR: "Visual Studio 17 2022"
+  CMAKE_GENERATOR_PLATFORM: "x64"
 
 jobs:
   windows:
     name: Build Windows release
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 90
 
     steps:
@@ -63,6 +65,19 @@ jobs:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+
+      - name: Verify Windows toolchain
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path -LiteralPath $vswhere)) {
+            throw "vswhere.exe was not found. Visual Studio is required for Flutter Windows builds."
+          }
+          $vsPath = & $vswhere -version "[17.0,18.0)" -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or -not $vsPath) {
+            throw "Visual Studio 2022 with MSVC x64 tools was not found."
+          }
+          Write-Host "Visual Studio 2022: $vsPath"
+          flutter doctor -v
 
       - name: Install Inno Setup
         run: |

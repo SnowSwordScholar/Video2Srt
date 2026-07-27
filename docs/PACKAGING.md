@@ -41,10 +41,14 @@ git tag v1.0.8
 git push origin v1.0.8
 ```
 
-It builds the Windows installer and a portable zip on `windows-latest`, then
+It builds the Windows installer and a portable zip on `windows-2022`, then
 publishes both files plus `SHA256SUMS.txt` to the GitHub Release for that tag.
 Tags must use the `vX.Y.Z` format because the Inno Setup version metadata is
 numeric.
+
+If a release run fails because the workflow needs a fix, run the workflow
+manually with the same tag. It rebuilds that tag and overwrites the release
+assets without bumping the version.
 
 The package intentionally excludes models. On first use, download a model in
 the GUI's model page. This keeps the release smaller and avoids redistributing
