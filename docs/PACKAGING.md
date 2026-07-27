@@ -32,6 +32,20 @@ To build an installer with Inno Setup:
 This first creates the portable package in `build\Video2Srt-package`, then
 writes an installer to `dist\installer`.
 
+## GitHub Actions Release
+
+The release workflow runs automatically when a version tag is pushed:
+
+```powershell
+git tag v1.0.8
+git push origin v1.0.8
+```
+
+It builds the Windows installer and a portable zip on `windows-latest`, then
+publishes both files plus `SHA256SUMS.txt` to the GitHub Release for that tag.
+Tags must use the `vX.Y.Z` format because the Inno Setup version metadata is
+numeric.
+
 The package intentionally excludes models. On first use, download a model in
 the GUI's model page. This keeps the release smaller and avoids redistributing
 large model files by accident.

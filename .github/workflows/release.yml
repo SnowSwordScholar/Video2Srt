@@ -1,0 +1,144 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v1.0.8"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: pwsh
+
+env:
+  PYTHON_VERSION: "3.12"
+  FLUTTER_VERSION: "3.24.5"
+
+jobs:
+  windows:
+    name: Build Windows release
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Resolve release version
+        run: |
+          $tag = if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+              "${{ inputs.tag }}"
+            } else {
+              "${{ github.ref_name }}"
+            }
+          $tag = $tag.Trim()
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "Release tag must look like v1.2.3. Got: $tag"
+          }
+          $version = $tag.Substring(1)
+          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --yes --no-progress
+          $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6"
+          if (Test-Path -LiteralPath $innoPath) {
+            $env:Path = "$innoPath;$env:Path"
+            "PATH=$env:Path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            throw "iscc was not found after installing Inno Setup."
+          }
+
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+
+      - name: Prepare Flutter dependencies
+        working-directory: flutter_app
+        run: |
+          flutter config --enable-windows-desktop
+          flutter pub get
+
+      - name: Build installer
+        run: |
+          .\scripts\build_installer.ps1 -Version $env:APP_VERSION
+
+      - name: Build portable zip and checksums
+        run: |
+          $zipPath = "dist\Video2Srt-$env:APP_VERSION-Windows-x64.zip"
+          Compress-Archive -Path "build\Video2Srt-package\*" -DestinationPath $zipPath -Force
+
+          $assets = @(
+            (Get-ChildItem -LiteralPath "dist\installer" -Filter "*.exe"),
+            (Get-Item -LiteralPath $zipPath)
+          )
+          $assets |
+            Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLowerInvariant())  $([System.IO.Path]::GetFileName($_.Path))" } |
+            Set-Content -LiteralPath "dist\SHA256SUMS.txt" -Encoding ascii
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: Video2Srt-${{ env.APP_VERSION }}-windows
+          path: |
+            dist/installer/*.exe
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $assets = @(
+            (Get-ChildItem -LiteralPath "dist\installer" -Filter "*.exe" | Select-Object -ExpandProperty FullName),
+            (Get-Item -LiteralPath "dist\Video2Srt-$env:APP_VERSION-Windows-x64.zip").FullName,
+            (Get-Item -LiteralPath "dist\SHA256SUMS.txt").FullName
+          )
+
+          $releaseExists = $false
+          try {
+            gh release view $env:RELEASE_TAG *> $null
+            $releaseExists = $LASTEXITCODE -eq 0
+          } catch {
+            $releaseExists = $false
+          }
+
+          if ($releaseExists) {
+            gh release upload $env:RELEASE_TAG @assets --clobber
+          } else {
+            gh release create $env:RELEASE_TAG @assets `
+              --title "Video2Srt $env:APP_VERSION" `
+              --generate-notes `
+              --verify-tag
+          }
