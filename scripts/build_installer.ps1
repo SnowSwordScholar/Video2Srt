@@ -44,7 +44,7 @@ $versionInfoVersion = "$appVersion.0"
 $outputBaseFilename = "Video2Srt-$appVersion-Setup"
 
 if (-not $SkipPackageBuild) {
-    & (Join-Path $PSScriptRoot "build_windows.ps1") -PackageRoot $packageFullPath -PackageProfile cpu
+    & (Join-Path $PSScriptRoot "build_windows.ps1") -PackageRoot $packageFullPath -PackageProfile auto
     if ($LASTEXITCODE -ne 0) {
         throw "Windows package build failed."
     }

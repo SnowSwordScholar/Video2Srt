@@ -33,6 +33,7 @@ import platform
 import re
 import shutil
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +42,16 @@ from typing import Any
 
 PROGRESS_PREFIX = "__VIDEO2SRT_PROGRESS__ "
 
+
+def configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 def application_root() -> Path:
     if getattr(sys, "frozen", False):
@@ -487,6 +498,8 @@ def check_runtime(cfg: AppConfig, progress_enabled: bool = False) -> dict[str, A
         "runtime_check",
         ok=report["ok"],
         transcription_ready=report["transcription_ready"],
+        model_path=model["configured_path"],
+        model_error=model.get("error"),
         cuda_device_count=report["cuda_device_count"],
         device=device,
         compute_type=compute_type,
@@ -569,7 +582,107 @@ def emit_progress(enabled: bool, event: str, **payload) -> None:
     if not enabled:
         return
     data = {"event": event, **payload}
-    print(PROGRESS_PREFIX + json.dumps(data, ensure_ascii=False), flush=True)
+    print(PROGRESS_PREFIX + json.dumps(data, ensure_ascii=True), flush=True)
+
+
+class _ProgressTqdm:
+    def __init__(self, progress_cb, duration_hint: dict[str, float], *args, **kwargs):
+        self._progress_cb = progress_cb
+        self._duration_hint = duration_hint
+        self.disable = bool(kwargs.get("disable", False))
+        self.total = self._as_float(kwargs.get("total"))
+        if self.total <= 0 and args:
+            self.total = self._as_float(args[0])
+        self.n = 0.0
+        self._last_percent = -1
+        self._last_emit = 0.0
+
+    @staticmethod
+    def _as_float(value) -> float:
+        try:
+            return float(value or 0.0)
+        except Exception:
+            return 0.0
+
+    def update(self, amount=1) -> None:
+        if self.disable:
+            return
+        step = self._as_float(amount)
+        if step <= 0:
+            return
+        self.n += step
+        if self.total > 0:
+            self.n = min(self.n, self.total)
+            percent = max(0, min(100, int((self.n / self.total) * 100)))
+        else:
+            percent = 0
+        display_duration = self._duration_hint.get("duration", 0.0) or self.total
+        if display_duration > 0 and self.total > 0:
+            current = min(display_duration, (self.n / self.total) * display_duration)
+        else:
+            current = self.n
+        now = time.monotonic()
+        if percent < self._last_percent + 1 and now - self._last_emit < 1.0:
+            return
+        self._last_percent = percent
+        self._last_emit = now
+        self._progress_cb(percent, current, display_duration)
+
+    def close(self) -> None:
+        return
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+
+class _FasterWhisperProgressPatch:
+    def __init__(self, progress_cb, duration_hint: dict[str, float]):
+        self._progress_cb = progress_cb
+        self._duration_hint = duration_hint
+        self._module = None
+        self._original = None
+
+    def __enter__(self):
+        try:
+            import faster_whisper.transcribe as transcribe_module
+        except Exception:
+            return self
+        self._module = transcribe_module
+        self._original = getattr(transcribe_module, "tqdm", None)
+        transcribe_module.tqdm = self._factory
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if self._module is not None and self._original is not None:
+            self._module.tqdm = self._original
+
+    def _factory(self, *args, **kwargs):
+        return _ProgressTqdm(self._progress_cb, self._duration_hint, *args, **kwargs)
+
+def probe_media_duration(path: Path) -> float | None:
+    """Read container metadata before transcription without decoding media."""
+    try:
+        import av
+
+        with av.open(str(path), mode="r") as container:
+            if container.duration and container.duration > 0:
+                return float(container.duration / av.time_base)
+            for stream in container.streams:
+                if (
+                    stream.type in {"video", "audio"}
+                    and stream.duration is not None
+                    and stream.time_base is not None
+                ):
+                    duration = float(stream.duration * stream.time_base)
+                    if duration > 0:
+                        return duration
+    except Exception:
+        # The transcription backend can still determine duration while decoding.
+        pass
+    return None
 
 
 def transcribe_one(
@@ -578,8 +691,7 @@ def transcribe_one(
     cfg: AppConfig,
     progress_cb=None,
 ):
-    segments, _info = model.transcribe(
-        str(video_path),
+    kwargs = dict(
         language=cfg.language,
         task=cfg.task,
         beam_size=cfg.beam_size,
@@ -597,25 +709,39 @@ def transcribe_one(
         word_timestamps=True,
         initial_prompt=cfg.initial_prompt,
     )
-    duration = float(getattr(_info, "duration", 0.0) or 0.0)
-    out = []
-    last_percent = -1
-    last_emit = 0.0
-    for seg in segments:
-        out.append(seg)
-        if progress_cb and duration > 0:
-            percent = max(0, min(100, int((float(seg.end) / duration) * 100)))
-            now = time.time()
-            if percent != last_percent and (
-                percent >= last_percent + 2 or now - last_emit >= 1.5
-            ):
-                progress_cb(percent, float(seg.end), duration)
-                last_percent = percent
-                last_emit = now
     if progress_cb:
-        progress_cb(100, duration, duration)
-    return out
+        kwargs["log_progress"] = True
+    duration_hint = {"duration": 0.0}
 
+    def _collect_segments():
+        segments, info = model.transcribe(str(video_path), **kwargs)
+        duration = float(getattr(info, "duration", 0.0) or 0.0)
+        duration_hint["duration"] = duration
+        if progress_cb:
+            progress_cb(0, 0.0, duration)
+        out = []
+        last_percent = -1
+        last_emit = 0.0
+        for seg in segments:
+            out.append(seg)
+            if progress_cb and duration > 0:
+                current = min(float(seg.end), duration)
+                percent = max(0, min(100, int((current / duration) * 100)))
+                now = time.time()
+                if percent != last_percent and (
+                    percent >= last_percent + 2 or now - last_emit >= 1.5
+                ):
+                    progress_cb(percent, current, duration)
+                    last_percent = percent
+                    last_emit = now
+        if progress_cb:
+            progress_cb(100, duration, duration)
+        return out
+
+    if progress_cb:
+        with _FasterWhisperProgressPatch(progress_cb, duration_hint):
+            return _collect_segments()
+    return _collect_segments()
 
 def _word_text(word) -> str:
     return normalize_caption_text(str(getattr(word, "word", "")))
@@ -954,17 +1080,20 @@ def push_to_source_dir(local_srt: Path, src_video: Path, cfg: AppConfig, log):
 
 
 def setup_logging(cfg: AppConfig):
-    cfg.log_file.parent.mkdir(parents=True, exist_ok=True)
     logger = logging.getLogger("srt")
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%H:%M:%S")
-    fh = logging.FileHandler(cfg.log_file, encoding="utf-8")
-    fh.setFormatter(fmt)
-    logger.addHandler(fh)
     sh = logging.StreamHandler(sys.stdout)
     sh.setFormatter(fmt)
     logger.addHandler(sh)
+    try:
+        cfg.log_file.parent.mkdir(parents=True, exist_ok=True)
+        fh = logging.FileHandler(cfg.log_file, encoding="utf-8")
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
+    except Exception as e:
+        logger.warning(f"日志文件不可用，仅输出到界面: {e}")
     return logger
 
 
@@ -1038,10 +1167,19 @@ def materialize_video(
     *,
     progress_enabled: bool = False,
     display_name: str | None = None,
+    index: int | None = None,
+    total: int | None = None,
 ) -> tuple[Path, Path | None]:
     name = display_name or src.name
     if not cfg.use_local_cache:
-        emit_progress(progress_enabled, "stage", stage="使用原始视频文件", name=name)
+        emit_progress(
+            progress_enabled,
+            "stage",
+            stage="使用原始视频文件",
+            name=name,
+            index=index,
+            total=total,
+        )
         return src, None
 
     cache_path = cfg.cache_dir / _cache_relative_path(src, cfg)
@@ -1050,7 +1188,14 @@ def materialize_video(
     def _copy():
         src_size = src.stat().st_size
         if cache_path.exists() and cache_path.stat().st_size == src_size:
-            emit_progress(progress_enabled, "stage", stage="复用本地缓存", name=name)
+            emit_progress(
+                progress_enabled,
+                "stage",
+                stage="复用本地缓存",
+                name=name,
+                index=index,
+                total=total,
+            )
             log.info(f"  复用本地缓存: {cache_path}")
             return cache_path
         emit_progress(
@@ -1059,6 +1204,8 @@ def materialize_video(
             stage="复制到本地缓存",
             name=name,
             bytes=src_size,
+            index=index,
+            total=total,
         )
         log.info(f"  复制到本地缓存: {cache_path}")
         tmp = cache_path.with_name(cache_path.name + ".part")
@@ -1068,7 +1215,14 @@ def materialize_video(
         if tmp.stat().st_size != src_size:
             raise OSError(f"缓存文件大小不一致: {tmp}")
         tmp.replace(cache_path)
-        emit_progress(progress_enabled, "stage", stage="本地缓存就绪", name=name)
+        emit_progress(
+            progress_enabled,
+            "stage",
+            stage="本地缓存就绪",
+            name=name,
+            index=index,
+            total=total,
+        )
         return cache_path
 
     cached = with_retry(
@@ -1099,19 +1253,70 @@ def process_one(
     log,
     *,
     progress_enabled: bool = False,
+    display_name: str | None = None,
+    index: int | None = None,
+    total: int | None = None,
 ):
     """转录单个视频（带重试）。返回 (sentences, 耗时)。"""
     t0 = time.time()
-    emit_progress(progress_enabled, "stage", stage="准备视频文件", name=v.name)
+    name = display_name or v.name
+    emit_progress(
+        progress_enabled,
+        "stage",
+        stage="准备视频文件",
+        name=name,
+        index=index,
+        total=total,
+    )
     work_video, cached = materialize_video(
         v,
         cfg,
         log,
         progress_enabled=progress_enabled,
-        display_name=v.name,
+        display_name=name,
+        index=index,
+        total=total,
     )
     try:
+        media_duration = probe_media_duration(work_video)
+        latest_progress = {
+            "percent": 0,
+            "current": 0.0,
+            "duration": media_duration or 0.0,
+        }
+        emitted_progress = {
+            "percent": None,
+            "current": None,
+            "duration": None,
+        }
+
         def _progress(percent: int, current: float, duration: float) -> None:
+            resolved_duration = duration if duration > 0 else latest_progress["duration"]
+            current = min(current, resolved_duration) if resolved_duration else current
+            percent = (
+                max(0, min(100, int((current / resolved_duration) * 100)))
+                if resolved_duration
+                else percent
+            )
+            duration = resolved_duration
+            if (
+                emitted_progress["percent"] is not None
+                and percent == emitted_progress["percent"]
+                and abs(current - float(emitted_progress["current"] or 0.0)) < 0.01
+                and abs(duration - float(emitted_progress["duration"] or 0.0)) < 0.01
+            ):
+                return
+            latest_progress.update(
+                percent=percent,
+                current=current,
+                duration=duration,
+            )
+            emitted_progress.update(
+                percent=percent,
+                current=current,
+                duration=duration,
+            )
+
             emit_progress(
                 progress_enabled,
                 "progress",
@@ -1119,20 +1324,58 @@ def process_one(
                 percent=percent,
                 current=round(current, 2),
                 duration=round(duration, 2),
-                name=v.name,
+                name=name,
+                index=index,
+                total=total,
             )
 
+        if media_duration:
+            _progress(0, 0.0, media_duration)
+
         def _do():
-            emit_progress(progress_enabled, "stage", stage="等待转录进度", name=v.name)
-            log.info(f"  正在转录: {v.name}")
-            segments = transcribe_one(model, work_video, cfg, _progress)
+            emit_progress(
+                progress_enabled,
+                "stage",
+                stage="正在初始化音频解码",
+                name=name,
+                index=index,
+                total=total,
+            )
+            heartbeat_stop = threading.Event()
+
+            def _heartbeat() -> None:
+                started_at = time.monotonic()
+                while not heartbeat_stop.wait(10):
+                    emit_progress(
+                        progress_enabled,
+                        "activity",
+                        stage="正在识别音频",
+                        elapsed=round(time.monotonic() - started_at),
+                        percent=latest_progress["percent"],
+                        current=round(latest_progress["current"], 2),
+                        duration=round(latest_progress["duration"], 2),
+                        name=name,
+                        index=index,
+                        total=total,
+                    )
+
+            heartbeat = threading.Thread(target=_heartbeat, daemon=True)
+            heartbeat.start()
+            try:
+                log.info(f"  正在转录: {v.name}")
+                segments = transcribe_one(model, work_video, cfg, _progress)
+            finally:
+                heartbeat_stop.set()
+                heartbeat.join(timeout=0.1)
             sentences = reflow(segments, cfg)
             emit_progress(
                 progress_enabled,
                 "stage",
                 stage="写入字幕",
-                name=v.name,
+                name=name,
                 percent=100,
+                index=index,
+                total=total,
             )
             return write_srt(sentences, srt, cfg)
 
@@ -1146,7 +1389,6 @@ def process_one(
         return sentences, time.time() - t0
     finally:
         cleanup_cached_video(cached, cfg, log)
-
 
 def repair_existing_srt(cfg: AppConfig, log) -> None:
     files = sorted(cfg.dst_root.rglob("*.srt"), key=lambda p: str(p).lower())
@@ -1222,6 +1464,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main():
+    configure_stdio()
     args = build_arg_parser().parse_args()
     cfg_path = _resolve_path(args.config, Path.cwd())
 
@@ -1278,7 +1521,17 @@ def main():
         "stage",
         stage=f"加载模型（共 {len(videos)} 个视频）",
     )
-    model = build_model(cfg, log, args.emit_progress)
+    try:
+        model = build_model(cfg, log, args.emit_progress)
+    except Exception as e:
+        log.exception("加载模型失败")
+        emit_progress(
+            args.emit_progress,
+            "error",
+            stage="加载模型失败",
+            error=f"{type(e).__name__}: {e}",
+        )
+        raise
     log.info("模型就绪。开始转录。")
     emit_progress(args.emit_progress, "stage", stage="模型就绪，开始转录")
 
@@ -1321,6 +1574,9 @@ def main():
                 cfg,
                 log,
                 progress_enabled=args.emit_progress,
+                display_name=str(rel),
+                index=i,
+                total=len(videos),
             )
             ok += 1
             msg = (

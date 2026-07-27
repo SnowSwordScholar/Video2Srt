@@ -6,9 +6,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'l10n.dart';
+
 const String progressPrefix = '__VIDEO2SRT_PROGRESS__ ';
 const String customModelPreset = 'custom';
-const Locale appLocale = Locale('zh', 'CN');
 const String windowsFontFamily = 'Microsoft YaHei UI';
 const List<String> windowsFontFallback = [
   'Microsoft YaHei',
@@ -20,6 +21,8 @@ const Map<String, String> modelRepos = {
   'large-v2': 'Systran/faster-whisper-large-v2',
   'large-v3': 'Systran/faster-whisper-large-v3',
 };
+final ValueNotifier<AppLanguage> appLanguageNotifier =
+    ValueNotifier<AppLanguage>(AppLanguage.chinese);
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,75 +46,84 @@ class Video2SrtApp extends StatelessWidget {
       surfaceContainerHighest: const Color(0xFFE7EFEA),
     );
 
-    return MaterialApp(
-      title: 'Video2Srt',
-      debugShowCheckedModeBanner: false,
-      locale: appLocale,
-      supportedLocales: const [appLocale, Locale('en', 'US')],
-      localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      builder: (context, child) {
-        final content = child ?? const SizedBox.shrink();
-        if (!Platform.isWindows) {
-          return content;
-        }
-        return DefaultTextStyle.merge(
-          style: const TextStyle(
-            fontFamily: windowsFontFamily,
-            fontFamilyFallback: windowsFontFallback,
-            locale: appLocale,
+    return ValueListenableBuilder<AppLanguage>(
+      valueListenable: appLanguageNotifier,
+      builder: (context, language, _) {
+        final locale = language.locale;
+        return MaterialApp(
+          title: 'Video2Srt',
+          debugShowCheckedModeBanner: false,
+          locale: locale,
+          supportedLocales: const [
+            Locale('zh', 'CN'),
+            Locale('en', 'US'),
+          ],
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          builder: (context, child) {
+            final content = child ?? const SizedBox.shrink();
+            if (!Platform.isWindows) {
+              return content;
+            }
+            return DefaultTextStyle.merge(
+              style: TextStyle(
+                fontFamily: windowsFontFamily,
+                fontFamilyFallback: windowsFontFallback,
+                locale: locale,
+              ),
+              child: content,
+            );
+          },
+          theme: ThemeData(
+            useMaterial3: true,
+            fontFamily: Platform.isWindows ? windowsFontFamily : null,
+            fontFamilyFallback: Platform.isWindows ? windowsFontFallback : null,
+            colorScheme: colorScheme,
+            scaffoldBackgroundColor: colorScheme.surface,
+            filledButtonTheme: const FilledButtonThemeData(
+              style: ButtonStyle(
+                minimumSize: WidgetStatePropertyAll(Size(0, 56)),
+                padding: WidgetStatePropertyAll(
+                  EdgeInsets.symmetric(horizontal: 28, vertical: 18),
+                ),
+                textStyle: WidgetStatePropertyAll(
+                  TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+            outlinedButtonTheme: const OutlinedButtonThemeData(
+              style: ButtonStyle(
+                minimumSize: WidgetStatePropertyAll(Size(0, 54)),
+                padding: WidgetStatePropertyAll(
+                  EdgeInsets.symmetric(horizontal: 26, vertical: 17),
+                ),
+                textStyle: WidgetStatePropertyAll(
+                  TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            textButtonTheme: const TextButtonThemeData(
+              style: ButtonStyle(
+                minimumSize: WidgetStatePropertyAll(Size(0, 50)),
+                padding: WidgetStatePropertyAll(
+                  EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                ),
+                textStyle: WidgetStatePropertyAll(
+                  TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            inputDecorationTheme: InputDecorationTheme(
+              filled: true,
+              fillColor: colorScheme.surfaceContainerLowest,
+              border: const OutlineInputBorder(),
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: colorScheme.outlineVariant),
+              ),
+            ),
           ),
-          child: content,
+          home: const WorkbenchScreen(),
         );
       },
-      theme: ThemeData(
-        useMaterial3: true,
-        fontFamily: Platform.isWindows ? windowsFontFamily : null,
-        fontFamilyFallback: Platform.isWindows ? windowsFontFallback : null,
-        colorScheme: colorScheme,
-        scaffoldBackgroundColor: colorScheme.surface,
-        filledButtonTheme: const FilledButtonThemeData(
-          style: ButtonStyle(
-            minimumSize: WidgetStatePropertyAll(Size(0, 56)),
-            padding: WidgetStatePropertyAll(
-              EdgeInsets.symmetric(horizontal: 28, vertical: 18),
-            ),
-            textStyle: WidgetStatePropertyAll(
-              TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-            ),
-          ),
-        ),
-        outlinedButtonTheme: const OutlinedButtonThemeData(
-          style: ButtonStyle(
-            minimumSize: WidgetStatePropertyAll(Size(0, 54)),
-            padding: WidgetStatePropertyAll(
-              EdgeInsets.symmetric(horizontal: 26, vertical: 17),
-            ),
-            textStyle: WidgetStatePropertyAll(
-              TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ),
-        textButtonTheme: const TextButtonThemeData(
-          style: ButtonStyle(
-            minimumSize: WidgetStatePropertyAll(Size(0, 50)),
-            padding: WidgetStatePropertyAll(
-              EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-            ),
-            textStyle: WidgetStatePropertyAll(
-              TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: colorScheme.surfaceContainerLowest,
-          border: const OutlineInputBorder(),
-          enabledBorder: OutlineInputBorder(
-            borderSide: BorderSide(color: colorScheme.outlineVariant),
-          ),
-        ),
-      ),
-      home: const WorkbenchScreen(),
     );
   }
 }
@@ -148,8 +160,8 @@ class BackendPaths {
       Directory('${executableDir.path}${Platform.pathSeparator}backend'),
       executableDir,
       Directory.current,
-      Directory.current.parent,
-      executableDir.parent,
+      ..._ancestorDirectories(executableDir),
+      ..._ancestorDirectories(Directory.current),
     ];
 
     final uniqueCandidates = <String>{};
@@ -166,6 +178,18 @@ class BackendPaths {
     throw StateError(
       '没有找到 transcribe.py 或 transcribe.exe。请设置 VIDEO2SRT_BACKEND_ROOT。',
     );
+  }
+
+  static Iterable<Directory> _ancestorDirectories(Directory start) sync* {
+    var current = start.absolute;
+    while (true) {
+      yield current;
+      final parent = current.parent;
+      if (parent.path == current.path) {
+        return;
+      }
+      current = parent;
+    }
   }
 
   static Future<BackendPaths?> _fromRoot(Directory root) async {
@@ -279,11 +303,11 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   Map<String, dynamic> _config = {};
   Map<String, dynamic> _manifest = {};
   Process? _process;
-  StreamSubscription<String>? _stdoutSub;
-  StreamSubscription<String>? _stderrSub;
-  Timer? _logFilePoller;
-  File? _fallbackLogFile;
-  int _fallbackLogOffset = 0;
+  StreamSubscription<List<int>>? _stdoutSub;
+  StreamSubscription<List<int>>? _stderrSub;
+  Timer? _backendOutputWatchdog;
+
+  bool _backendReportedFailure = false;
   bool _receivedBackendOutput = false;
   int _pageIndex = 0;
   String _modelPreset = 'large-v3';
@@ -297,10 +321,19 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   bool _isBusy = false;
   bool _progressIndeterminate = false;
   double _progress = 0;
-  String _progressText = '等待任务';
-  String _currentVideo = '当前视频：-';
+  String _progressText = '';
+  String _currentVideo = '';
+  DateTime? _batchEstimateStartedAt;
+  int? _batchEstimateFirstVideoIndex;
+  int? _batchEstimateTotal;
+  double _batchEstimateFirstVideoPercent = 0;
+
+  AppLanguage _language = AppLanguage.chinese;
   final List<String> _logs = [];
+  final List<_VideoProgress> _videoProgresses = [];
   Timer? _configSaveDebounce;
+
+  AppStrings get _s => AppStrings(_language);
 
   @override
   void initState() {
@@ -312,7 +345,8 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   void dispose() {
     _stdoutSub?.cancel();
     _stderrSub?.cancel();
-    _stopLogFileFallback();
+    _backendOutputWatchdog?.cancel();
+
     _process?.kill();
     _sourceController.dispose();
     _outputController.dispose();
@@ -352,10 +386,16 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       if (!mounted) {
         return;
       }
+      final language =
+          appLanguageFromCode('${config['ui_language'] ?? 'zh-CN'}');
+      appLanguageNotifier.value = language;
       setState(() {
         _backend = backend;
         _config = config;
         _manifest = manifest;
+        _language = language;
+        _progressText = _s.waitingTask;
+        _currentVideo = _s.currentVideoDash;
         _sourceController.text = '${config['src_root'] ?? ''}';
         _outputController.text = '${config['dst_root'] ?? 'output'}';
         _modelController.text = '${config['model_base'] ?? ''}';
@@ -380,19 +420,21 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
         _useLocalCache = config['use_local_cache'] != false;
         _deleteCache = config['delete_cache_after'] != false;
         _pushToSource = config['push_to_source'] == true;
-        _appendLog('后端目录：${backend.root.path}');
-        _appendLog('后端命令：${backend.displayCommand}');
-        _appendLog('配置文件：${backend.config.path}');
+        _appendLog(_s.labelValue(_s.backendDirectory, backend.root.path));
+        _appendLog(_s.labelValue(_s.backendCommand, backend.displayCommand));
+        _appendLog(_s.labelValue(_s.configFile, backend.config.path));
         if (manifest.isNotEmpty) {
           _appendLog(
-            '后端包：${manifest['backend_mode'] ?? '-'} / '
-            '${manifest['package_profile'] ?? '-'}',
+            _s.backendPackage(
+              (manifest['backend_mode'] ?? '-').toString(),
+              (manifest['package_profile'] ?? '-').toString(),
+            ),
           );
         }
       });
     } catch (error) {
       if (mounted) {
-        setState(() => _appendLog('初始化失败：$error'));
+        setState(() => _appendLog(_s.failure(_s.initializationFailed, error)));
       }
     }
   }
@@ -431,14 +473,6 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     final backend = _backend;
     final value = raw.trim();
     if (value.isEmpty || _isAbsolutePath(value) || backend == null) {
-      return value;
-    }
-    return '${backend.dataRoot.path}${Platform.pathSeparator}$value';
-  }
-
-  String _resolveAgainstDataRoot(BackendPaths backend, String raw) {
-    final value = raw.trim();
-    if (value.isEmpty || _isAbsolutePath(value)) {
       return value;
     }
     return '${backend.dataRoot.path}${Platform.pathSeparator}$value';
@@ -538,10 +572,10 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   Future<void> _saveConfig({bool quiet = false}) async {
     final backend = _backend;
     if (backend == null) {
-      throw StateError('后端未就绪');
+      throw StateError(_s.emptyBackend);
     }
     if (!(_formKey.currentState?.validate() ?? false)) {
-      throw StateError('请先修正设置项');
+      throw StateError(_s.fixSettings);
     }
 
     final config = Map<String, dynamic>.from(_config)
@@ -554,6 +588,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       ..['use_local_cache'] = _useLocalCache
       ..['delete_cache_after'] = _deleteCache
       ..['push_to_source'] = _pushToSource
+      ..['ui_language'] = _language.code
       ..['device'] = _device
       ..['compute_type'] = _computeType
       ..['http_proxy'] = _httpProxyController.text.trim()
@@ -590,7 +625,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
         await _saveConfig(quiet: true);
       } catch (error) {
         if (mounted) {
-          setState(() => _appendLog('自动保存配置失败：$error'));
+          setState(() => _appendLog(_s.failure(_s.autoSaveFailed, error)));
         }
       }
     });
@@ -602,7 +637,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   }) async {
     try {
       final selected = await FilePicker.getDirectoryPath(
-        dialogTitle: '选择目录',
+        dialogTitle: _s.chooseDirectory,
         lockParentWindow: true,
         initialDirectory: _initialDirectoryFor(controller.text),
       );
@@ -613,15 +648,15 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
         });
       }
     } catch (error) {
-      setState(() => _appendLog('打开目录选择器失败：$error'));
-      _showMessage('打开目录选择器失败：$error');
+      setState(() => _appendLog(_s.failure(_s.directoryPickerFailed, error)));
+      _showMessage(_s.failure(_s.directoryPickerFailed, error));
     }
   }
 
   Future<void> _pickVideo() async {
     try {
       final selection = await FilePicker.pickFiles(
-        dialogTitle: '选择视频或音频',
+        dialogTitle: _s.chooseVideoAudio,
         initialDirectory: _initialDirectoryFor(
           _singleFileController.text,
           fallback: _sourceController.text,
@@ -636,8 +671,8 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
         setState(() => _singleFileController.text = path);
       }
     } catch (error) {
-      setState(() => _appendLog('打开文件选择器失败：$error'));
-      _showMessage('打开文件选择器失败：$error');
+      setState(() => _appendLog(_s.failure(_s.filePickerFailed, error)));
+      _showMessage(_s.failure(_s.filePickerFailed, error));
     }
   }
 
@@ -654,7 +689,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     try {
       await _saveConfig(quiet: true);
     } catch (error) {
-      _showMessage('保存模型选择失败：$error');
+      _showMessage(_s.failure(_s.modelSelectionSaveFailed, error));
     }
   }
 
@@ -669,7 +704,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     try {
       await _saveConfig(quiet: true);
     } catch (error) {
-      _showMessage('保存模型选择失败：$error');
+      _showMessage(_s.failure(_s.modelSelectionSaveFailed, error));
     }
   }
 
@@ -680,181 +715,17 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     _scheduleConfigSave();
   }
 
-  Future<void> _startLogFileFallback(BackendPaths backend) async {
-    _stopLogFileFallback();
-    final logPath = _resolveAgainstDataRoot(
-      backend,
-      '${_config['log_file'] ?? 'progress.log'}',
-    );
-    if (logPath.trim().isEmpty) {
-      return;
-    }
-    final file = File(logPath);
-    _fallbackLogFile = file;
-    _fallbackLogOffset = await file.exists() ? await file.length() : 0;
-    _receivedBackendOutput = false;
-    _logFilePoller = Timer.periodic(const Duration(seconds: 1), (_) {
-      unawaited(_pollLogFileFallback());
-    });
-  }
-
-  void _stopLogFileFallback() {
-    _logFilePoller?.cancel();
-    _logFilePoller = null;
-    _fallbackLogFile = null;
-  }
-
-  Future<void> _pollLogFileFallback() async {
-    if (_receivedBackendOutput || !_isBusy) {
-      return;
-    }
-    final file = _fallbackLogFile;
-    if (file == null || !await file.exists()) {
-      return;
-    }
-    final length = await file.length();
-    if (length < _fallbackLogOffset) {
-      _fallbackLogOffset = 0;
-    }
-    if (length == _fallbackLogOffset) {
-      return;
-    }
-
-    final start = _fallbackLogOffset;
-    final reader = await file.open();
-    try {
-      await reader.setPosition(start);
-      final bytes = await reader.read(length - start);
-      _fallbackLogOffset = length;
-      final lines = const Utf8Decoder(allowMalformed: true)
-          .convert(bytes)
-          .split(RegExp(r'\r?\n'))
-          .map((line) => line.trimRight())
-          .where((line) => line.trim().isNotEmpty)
-          .toList();
-      if (!mounted || lines.isEmpty || _receivedBackendOutput) {
-        return;
-      }
-      setState(() {
-        for (final line in lines) {
-          _appendLog(line);
-          _applyLogLineStatus(line);
-        }
-      });
-    } finally {
-      await reader.close();
-    }
-  }
-
-  void _applyLogLineStatus(String line) {
-    final message =
-        line.replaceFirst(RegExp(r'^\d\d:\d\d:\d\d\s+\w+\s+'), '').trim();
-    if (message.isEmpty) {
-      return;
-    }
-
-    if (message.startsWith('共 ') && message.contains('个视频待处理。加载模型')) {
-      _progressIndeterminate = true;
-      _progressText = message.replaceAll('...', '');
-      _currentVideo = '当前阶段：加载模型';
-      return;
-    }
-    if (message.startsWith('运行设备:')) {
-      _progressIndeterminate = true;
-      final match =
-          RegExp(r'运行设备:\s+(\S+)\s+计算精度:\s+(\S+)').firstMatch(message);
-      if (match != null) {
-        _progressText = '加载模型（${match.group(1)} / ${match.group(2)}）';
-      } else {
-        _progressText = '加载模型';
-      }
-      _currentVideo = '当前阶段：模型加载';
-      return;
-    }
-    if (message.startsWith('模型就绪')) {
-      _progressIndeterminate = true;
-      _progressText = '模型就绪，开始转录';
-      _currentVideo = '当前阶段：模型就绪';
-      return;
-    }
-    if (message.startsWith('正在转录:')) {
-      final name = message.substring('正在转录:'.length).trim();
-      _progressIndeterminate = true;
-      _progressText = '正在转录';
-      _currentVideo = '当前阶段：正在转录 · ${_basename(name)}';
-      return;
-    }
-    if (message.startsWith('本地缓存:')) {
-      final path = message.substring('本地缓存:'.length).trim();
-      _progressIndeterminate = true;
-      _progressText = '本地缓存就绪';
-      _currentVideo = '当前阶段：本地缓存就绪 · ${_basename(path)}';
-      return;
-    }
-    if (message.startsWith('复制到本地缓存:')) {
-      final path = message.substring('复制到本地缓存:'.length).trim();
-      _progressIndeterminate = true;
-      _progressText = '复制到本地缓存';
-      _currentVideo = '当前阶段：复制到本地缓存 · ${_basename(path)}';
-      return;
-    }
-    if (message.startsWith('复用本地缓存:')) {
-      final path = message.substring('复用本地缓存:'.length).trim();
-      _progressIndeterminate = true;
-      _progressText = '复用本地缓存';
-      _currentVideo = '当前阶段：复用本地缓存 · ${_basename(path)}';
-      return;
-    }
-
-    final item = RegExp(r'^\[(\d+)/(\d+)\]\s+(OK|SKIP|FAIL)\s+(.+)$')
-        .firstMatch(message);
-    if (item != null) {
-      final index = int.tryParse(item.group(1) ?? '') ?? 0;
-      final total = int.tryParse(item.group(2) ?? '') ?? 0;
-      final status = item.group(3) ?? '';
-      if (total > 0) {
-        _progress = index / total;
-      }
-      _progressIndeterminate = false;
-      _progressText = status == 'OK'
-          ? '完成 $index/$total'
-          : status == 'SKIP'
-              ? '跳过 $index/$total'
-              : '失败 $index/$total';
-      _currentVideo = '当前视频：${item.group(4)}';
-      return;
-    }
-    if (message.startsWith('完成。')) {
-      _progressIndeterminate = false;
-      _progress = 1;
-      _progressText = '任务完成';
-      _currentVideo = '当前阶段：全部完成';
-      return;
-    }
-    if (message.startsWith('转录 ') && message.contains('次失败')) {
-      _progressIndeterminate = true;
-      _progressText = '转录重试中';
-      _currentVideo = '当前阶段：转录重试';
-    }
-  }
-
-  String _basename(String path) {
-    final normalized = path.replaceAll('\\', '/');
-    final index = normalized.lastIndexOf('/');
-    return index >= 0 ? normalized.substring(index + 1) : normalized;
-  }
-
   Future<void> _runTranscription(
       {bool repair = false, bool single = false}) async {
     if (_isBusy) {
       return;
     }
     if (!repair && _sourceController.text.trim().isEmpty && !single) {
-      _showMessage('请先选择视频根目录');
+      _showMessage(_s.noVideoRoot);
       return;
     }
     if (single && _singleFileController.text.trim().isEmpty) {
-      _showMessage('请先选择单个视频');
+      _showMessage(_s.noSingleVideo);
       return;
     }
 
@@ -878,7 +749,10 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           args.add('--push-source');
         }
       }
-      await _startProcess(args, title: repair ? '修复已有字幕' : '开始转录');
+      await _startProcess(
+        args,
+        title: repair ? _s.repairSubtitles : _s.startTranscription,
+      );
     } catch (error) {
       _showMessage('$error');
     }
@@ -893,7 +767,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       await _saveConfig();
       await _startProcess(
         ['--emit-progress', '--download-model', model],
-        title: '下载 $model',
+        title: _s.downloadModel(model),
         downloading: true,
       );
     } catch (error) {
@@ -909,7 +783,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       await _saveConfig();
       await _startProcess(
         ['--emit-progress', '--check-runtime'],
-        title: '环境自检',
+        title: _s.environmentCheck,
       );
     } catch (error) {
       _showMessage('$error');
@@ -923,10 +797,12 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   }) async {
     final backend = _backend;
     if (backend == null) {
-      throw StateError('后端未就绪');
+      throw StateError(_s.emptyBackend);
     }
-    final initialStage = downloading ? '准备下载模型' : '启动后端';
-    final waitingStage = downloading ? '等待模型下载响应' : '等待后端响应';
+    final initialStage =
+        downloading ? _s.preparingModelDownload : _s.startingBackend;
+    final waitingStage =
+        downloading ? _s.waitingModelDownload : _s.waitingBackend;
     final commandArgs = [
       ...backend.baseArgs,
       '--config',
@@ -938,32 +814,36 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       _isBusy = true;
       _progressIndeterminate = true;
       _progress = 0;
+      _backendReportedFailure = false;
+      _receivedBackendOutput = false;
+      _videoProgresses.clear();
+      _batchEstimateStartedAt = null;
+      _batchEstimateFirstVideoIndex = null;
+      _batchEstimateTotal = null;
+      _batchEstimateFirstVideoPercent = 0;
       _progressText = initialStage;
       _currentVideo = downloading
-          ? '当前阶段：$initialStage · $_modelPreset'
-          : '当前阶段：$initialStage';
-      _appendLog('任务：$title');
+          ? _s.stageWithName(initialStage, _modelPreset)
+          : _s.stageOnly(initialStage);
+      _appendLog(_s.taskLog(title));
       _appendLog(
-        '阶段：$initialStage${downloading ? '  $_modelPreset' : ''}',
+        _s.stageLog(initialStage, downloading ? _modelPreset : ''),
       );
       _appendLog('> ${backend.executable} ${commandArgs.join(' ')}');
     });
-
-    await _startLogFileFallback(backend);
 
     late final Process process;
     try {
       process = await backend.start(args);
     } catch (error) {
-      _stopLogFileFallback();
       if (mounted) {
         setState(() {
           _process = null;
           _isBusy = false;
           _progressIndeterminate = false;
-          _progressText = '后端启动失败';
-          _currentVideo = '当前阶段：后端启动失败';
-          _appendLog('后端启动失败：$error');
+          _progressText = _s.backendStartingFailed;
+          _currentVideo = _s.stageOnly(_s.backendStartingFailed);
+          _appendLog(_s.failure(_s.backendStartingFailed, error));
         });
       }
       rethrow;
@@ -973,28 +853,71 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       _process = process;
       _progressText = waitingStage;
       _currentVideo = downloading
-          ? '当前阶段：$waitingStage · $_modelPreset'
-          : '当前阶段：$waitingStage';
+          ? _s.stageWithName(waitingStage, _modelPreset)
+          : _s.stageOnly(waitingStage);
+      _appendLog(_s.backendProcessStarted(process.pid));
       _appendLog(
-        '阶段：$waitingStage${downloading ? '  $_modelPreset' : ''}',
+        _s.stageLog(waitingStage, downloading ? _modelPreset : ''),
       );
     });
+    _startBackendOutputWatchdog(process.pid, waitingStage);
 
-    _stdoutSub = process.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen(_handleOutputLine);
-    _stderrSub = process.stderr
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) {
+    final stdoutDone = Completer<void>();
+    final stderrDone = Completer<void>();
+    final stdoutLines = _ProcessLineCollector((line) {
+      _markBackendOutputReceived();
+      _handleOutputLine(line);
+    });
+    final stderrLines = _ProcessLineCollector((line) {
+      _markBackendOutputReceived();
       if (mounted) {
-        setState(() => _appendLog(line));
+        setState(() {
+          _appendLog(line);
+        });
       }
     });
 
+    _stdoutSub = process.stdout.listen(
+      stdoutLines.add,
+      onError: (Object error, StackTrace stackTrace) {
+        if (mounted) {
+          setState(() => _appendLog(_s.failure(_s.outputDecodeFailed, error)));
+        }
+      },
+      onDone: () {
+        stdoutLines.close();
+        if (!stdoutDone.isCompleted) {
+          stdoutDone.complete();
+        }
+      },
+      cancelOnError: false,
+    );
+    _stderrSub = process.stderr.listen(
+      stderrLines.add,
+      onError: (Object error, StackTrace stackTrace) {
+        if (mounted) {
+          setState(() => _appendLog(_s.failure(_s.outputDecodeFailed, error)));
+        }
+      },
+      onDone: () {
+        stderrLines.close();
+        if (!stderrDone.isCompleted) {
+          stderrDone.complete();
+        }
+      },
+      cancelOnError: false,
+    );
+
     final exitCode = await process.exitCode;
-    _stopLogFileFallback();
+
+    _backendOutputWatchdog?.cancel();
+    _backendOutputWatchdog = null;
+    try {
+      await Future.wait([stdoutDone.future, stderrDone.future])
+          .timeout(const Duration(seconds: 2));
+    } catch (_) {
+      // The process has already exited; do not let a stuck pipe keep the UI busy.
+    }
     await _stdoutSub?.cancel();
     await _stderrSub?.cancel();
     if (!mounted) {
@@ -1004,9 +927,42 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       _process = null;
       _isBusy = false;
       _progressIndeterminate = false;
-      _progress = exitCode == 0 ? 1 : _progress;
-      _progressText = exitCode == 0 ? '任务完成' : '任务退出：$exitCode';
-      _appendLog('进程结束，退出码 $exitCode');
+      if (exitCode == 0 && !_backendReportedFailure) {
+        _progress = 1;
+      }
+      if (!_backendReportedFailure) {
+        _progressText = exitCode == 0 ? _s.taskComplete : _s.taskExit(exitCode);
+      }
+      _appendLog(_s.processExited(exitCode));
+    });
+  }
+
+  void _markBackendOutputReceived() {
+    _receivedBackendOutput = true;
+  }
+
+  void _startBackendOutputWatchdog(int pid, String waitingStage) {
+    _backendOutputWatchdog?.cancel();
+    final startedAt = DateTime.now();
+    var lastLoggedAt = 0;
+    _backendOutputWatchdog = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (!mounted || !_isBusy || _process == null) {
+        timer.cancel();
+        return;
+      }
+      if (_receivedBackendOutput) {
+        timer.cancel();
+        return;
+      }
+      final elapsed = DateTime.now().difference(startedAt).inSeconds;
+      setState(() {
+        _progressText = _s.backendNoOutputWaiting(elapsed);
+        _currentVideo = _s.stageOnly(waitingStage);
+        if (elapsed >= 10 && elapsed - lastLoggedAt >= 20) {
+          lastLoggedAt = elapsed;
+          _appendLog(_s.backendNoOutputLog(pid, elapsed));
+        }
+      });
     });
   }
 
@@ -1014,8 +970,6 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     if (!mounted) {
       return;
     }
-    _receivedBackendOutput = true;
-    _stopLogFileFallback();
     final progressLine = line.trimLeft();
     if (progressLine.startsWith(progressPrefix)) {
       try {
@@ -1030,89 +984,371 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
     setState(() => _appendLog(line));
   }
 
+  int _eventInt(Map<String, dynamic> event, String key) {
+    final value = event[key];
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  double? _eventDouble(Map<String, dynamic> event, String key) {
+    final value = event[key];
+    if (value is num) {
+      return value.toDouble();
+    }
+    return double.tryParse(value?.toString() ?? '');
+  }
+
+  void _upsertVideoProgress({
+    required int index,
+    required int total,
+    String? name,
+    String? stage,
+    double? percent,
+    String? status,
+    double? current,
+    double? duration,
+  }) {
+    if (index <= 0) {
+      return;
+    }
+    final position =
+        _videoProgresses.indexWhere((video) => video.index == index);
+    if (position < 0) {
+      _videoProgresses.add(
+        _VideoProgress(
+          index: index,
+          total: total,
+          name: name == null || name.trim().isEmpty
+              ? _s.videoItemLabel(index, total)
+              : name.trim(),
+          stage: stage ?? '',
+          percent: percent ?? 0,
+          status: status ?? 'running',
+          current: current,
+          duration: duration,
+        ),
+      );
+    } else {
+      final video = _videoProgresses[position];
+      if (total > 0) {
+        video.total = total;
+      }
+      if (name != null && name.trim().isNotEmpty) {
+        video.name = name.trim();
+      }
+      if (stage != null) {
+        video.stage = stage;
+      }
+      if (percent != null) {
+        video.percent = percent.clamp(0, 100).toDouble();
+      }
+      if (status != null) {
+        video.status = status;
+      }
+      if (current != null) {
+        video.current = current;
+      }
+      if (duration != null) {
+        video.duration = duration;
+      }
+    }
+    _videoProgresses.sort((left, right) => left.index.compareTo(right.index));
+  }
+
+  void _setOverallProgress(int index, int total, double percent) {
+    if (index <= 0 || total <= 0) {
+      return;
+    }
+    final clipped = percent.clamp(0, 100).toDouble();
+    _progress = ((index - 1) + (clipped / 100)) / total;
+  }
+
+  void _recordBatchEstimateProgress(int index, int total, double percent) {
+    if (_batchEstimateStartedAt != null || index <= 0 || total <= 0) {
+      return;
+    }
+    _batchEstimateStartedAt = DateTime.now();
+    _batchEstimateFirstVideoIndex = index;
+    _batchEstimateTotal = total;
+    _batchEstimateFirstVideoPercent = percent.clamp(0, 100).toDouble();
+  }
+
+  String _batchEstimateText() {
+    if (!_isBusy && _progress >= 1 && !_backendReportedFailure) {
+      return _s.estimatedRemaining(_formatEstimateDuration(Duration.zero));
+    }
+
+    final startedAt = _batchEstimateStartedAt;
+    final firstIndex = _batchEstimateFirstVideoIndex;
+    final total = _batchEstimateTotal;
+    if (!_isBusy || startedAt == null || firstIndex == null || total == null) {
+      return _s.estimatedRemainingCalculating;
+    }
+
+    _VideoProgress? active;
+    for (final video in _videoProgresses) {
+      if (video.status == 'running') {
+        active = video;
+        break;
+      }
+    }
+    final activeFraction = active == null
+        ? 0.0
+        : active.percent.clamp(0, 100).toDouble() / 100;
+    final completedWork = _videoProgresses
+            .where(
+              (video) =>
+                  video.index >= firstIndex &&
+                  (video.status == 'ok' || video.status == 'fail'),
+            )
+            .length +
+        activeFraction -
+        (_batchEstimateFirstVideoPercent / 100);
+    if (completedWork <= 0.01) {
+      return _s.estimatedRemainingCalculating;
+    }
+
+    final terminalCount =
+        _videoProgresses.where((video) => video.isTerminal).length;
+    final remainingWork = total - terminalCount - activeFraction;
+    if (remainingWork <= 0) {
+      return _s.estimatedRemaining(_formatEstimateDuration(Duration.zero));
+    }
+
+    final elapsedMilliseconds =
+        DateTime.now().difference(startedAt).inMilliseconds;
+    if (elapsedMilliseconds <= 0) {
+      return _s.estimatedRemainingCalculating;
+    }
+    final remainingMilliseconds =
+        (elapsedMilliseconds * remainingWork / completedWork).round();
+    return _s.estimatedRemaining(
+      _formatEstimateDuration(Duration(milliseconds: remainingMilliseconds)),
+    );
+  }
+
+  String _formatEstimateDuration(Duration duration) {
+    final seconds = duration.inSeconds.clamp(0, 99 * 24 * 60 * 60).toInt();
+    final days = seconds ~/ (24 * 60 * 60);
+    final hours = (seconds % (24 * 60 * 60)) ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+    if (_language == AppLanguage.chinese) {
+      if (days > 0) {
+        return '$days 天 $hours 小时';
+      }
+      if (hours > 0) {
+        return '$hours 小时 $minutes 分钟';
+      }
+      if (minutes > 0) {
+        return '$minutes 分钟';
+      }
+      return '$seconds 秒';
+    }
+    if (days > 0) {
+      return '${days}d ${hours}h';
+    }
+    if (hours > 0) {
+      return '${hours}h ${minutes}m';
+    }
+    if (minutes > 0) {
+      return '${minutes}m';
+    }
+    return '${seconds}s';
+  }
+
   void _handleProgressEvent(Map<String, dynamic> event) {
-    final type = '${event['event'] ?? ''}';
+    final type = (event['event'] ?? '').toString();
+    final s = _s;
     setState(() {
       switch (type) {
         case 'video_start':
+          final index = _eventInt(event, 'index');
+          final total = _eventInt(event, 'total');
+          final name = (event['name'] ?? '').toString().trim();
+          _upsertVideoProgress(
+            index: index,
+            total: total,
+            name: name,
+            stage: '准备视频文件',
+            percent: 0,
+            status: 'running',
+          );
           _progressIndeterminate = true;
-          _progress = 0;
-          _currentVideo =
-              '当前视频：[${event['index']}/${event['total']}] ${event['name']}';
-          _progressText = '准备转录';
+          _setOverallProgress(index, total, 0);
+          _currentVideo = s.currentVideoIndexed(index, total, name);
+          _progressText = s.preparingVideo;
           break;
         case 'progress':
-          final percent = (event['percent'] as num?)?.toDouble() ?? 0;
-          final stage = '${event['stage'] ?? '转录中'}';
+          final index = _eventInt(event, 'index');
+          final total = _eventInt(event, 'total');
+          final percent = _eventDouble(event, 'percent') ?? 0;
+          final stage = (event['stage'] ?? '转录中').toString();
+          final name = (event['name'] ?? '').toString().trim();
+          final current = _eventDouble(event, 'current');
+          final duration = _eventDouble(event, 'duration');
+          _upsertVideoProgress(
+            index: index,
+            total: total,
+            name: name,
+            stage: stage,
+            percent: percent,
+            status: 'running',
+            current: current,
+            duration: duration,
+          );
           _progressIndeterminate = false;
-          _progress = percent / 100;
-          _progressText = '$stage ${percent.toStringAsFixed(0)}%  '
-              '${event['current'] ?? 0}/${event['duration'] ?? 0}s';
-          final name = '${event['name'] ?? ''}'.trim();
+          _setOverallProgress(index, total, percent);
+          _recordBatchEstimateProgress(index, total, percent);
+          _progressText = s.progressStage(
+            stage,
+            percent,
+            current ?? 0,
+            duration ?? 0,
+          );
           if (name.isNotEmpty) {
-            _currentVideo = '当前阶段：$stage · $name';
+            _currentVideo = s.stageWithName(stage, name);
           }
           break;
         case 'stage':
-          final percent = (event['percent'] as num?)?.toDouble();
-          final stage = '${event['stage'] ?? '处理中'}';
+          final index = _eventInt(event, 'index');
+          final total = _eventInt(event, 'total');
+          final percent = _eventDouble(event, 'percent');
+          final stage = (event['stage'] ?? '处理中').toString();
+          final name = (event['name'] ?? '').toString().trim();
+          _upsertVideoProgress(
+            index: index,
+            total: total,
+            name: name,
+            stage: stage,
+            percent: percent,
+            status: 'running',
+          );
           _progressIndeterminate = percent == null;
           if (percent != null) {
-            _progress = percent / 100;
+            _setOverallProgress(index, total, percent);
           }
-          _progressText = stage;
-          final name = '${event['name'] ?? ''}'.trim();
-          _currentVideo = name.isEmpty ? '当前阶段：$stage' : '当前阶段：$stage · $name';
-          _appendLog(name.isEmpty ? '阶段：$stage' : '阶段：$stage  $name');
+          _progressText = s.stage(stage);
+          _currentVideo =
+              name.isEmpty ? s.stageOnly(stage) : s.stageWithName(stage, name);
+          _appendLog(s.stageLog(stage, name));
           break;
         case 'video_done':
-          final name = '${event['name'] ?? ''}'.trim();
-          final status = '${event['status'] ?? ''}';
+          final index = _eventInt(event, 'index');
+          final total = _eventInt(event, 'total');
+          final name = (event['name'] ?? '').toString().trim();
+          final status = (event['status'] ?? '').toString();
+          _upsertVideoProgress(
+            index: index,
+            total: total,
+            name: name,
+            percent: status == 'fail' ? null : 100,
+            status: status,
+          );
           _progressIndeterminate = false;
-          _progress = 1;
-          _progressText = status == 'skip'
-              ? '已跳过当前视频'
-              : status == 'fail'
-                  ? '当前视频失败'
-                  : '当前视频完成';
+          _setOverallProgress(index, total, 100);
+          _progressText = s.videoStatus(status);
           if (name.isNotEmpty) {
-            _currentVideo = '完成：$name';
+            _currentVideo = s.currentVideoValue(name);
+          }
+          break;
+        case 'activity':
+          final index = _eventInt(event, 'index');
+          final total = _eventInt(event, 'total');
+          final name = (event['name'] ?? '').toString().trim();
+          final stage = (event['stage'] ?? '处理中').toString();
+          final elapsed = _eventInt(event, 'elapsed');
+          final percent = _eventDouble(event, 'percent');
+          final current = _eventDouble(event, 'current');
+          final duration = _eventDouble(event, 'duration');
+          _upsertVideoProgress(
+            index: index,
+            total: total,
+            name: name,
+            stage: stage,
+            percent: percent,
+            current: current,
+            duration: duration,
+            status: 'running',
+          );
+          if (percent != null) {
+            _progressIndeterminate = false;
+            _setOverallProgress(index, total, percent);
+          }
+          _progressText = s.activityStage(stage, elapsed);
+          if (name.isNotEmpty) {
+            _currentVideo = s.stageWithName(stage, name);
+          }
+          break;
+        case 'error':
+          final stage = (event['stage'] ?? '任务失败').toString();
+          final error = (event['error'] ?? '').toString().trim();
+          final name = (event['name'] ?? '').toString().trim();
+          _backendReportedFailure = true;
+          _progressIndeterminate = false;
+          _progressText = s.stage(stage);
+          _currentVideo =
+              name.isEmpty ? s.stageOnly(stage) : s.stageWithName(stage, name);
+          if (error.isNotEmpty) {
+            _appendLog(s.failure(s.stage(stage), error));
           }
           break;
         case 'model_download_start':
+          final name = (event['name'] ?? '').toString();
           _progressIndeterminate = true;
-          _currentVideo = '当前阶段：模型下载 · ${event['name']}';
-          _progressText = '正在下载模型';
-          _appendLog('阶段：模型下载  ${event['name']}');
+          _currentVideo = s.stageWithName('模型下载', name);
+          _progressText = s.downloadingModel;
+          _appendLog(s.stageLog('模型下载', name));
           break;
         case 'runtime':
+          final device = (event['device'] ?? '-').toString();
+          final computeType = (event['compute_type'] ?? '-').toString();
           _progressIndeterminate = true;
-          _progressText =
-              '加载模型（${event['device'] ?? '-'} / ${event['compute_type'] ?? '-'}）';
-          _currentVideo = '当前阶段：模型加载';
-          _appendLog(
-            '运行设备：${event['device']}  计算精度：${event['compute_type']}',
-          );
+          _progressText = '${s.loadingModel} ($device / $computeType)';
+          _currentVideo = s.stageOnly('模型加载');
+          _appendLog(s.runtimeLog(device, computeType));
           break;
         case 'runtime_check':
-          final ok = event['ok'] == true;
+          final environmentOk = event['ok'] == true;
+          final transcriptionReady = event['transcription_ready'] == true;
+          final modelError = (event['model_error'] ?? '').toString().trim();
+          final modelPath = (event['model_path'] ?? '').toString().trim();
+          final passed = environmentOk && transcriptionReady;
+          _backendReportedFailure = !passed;
           _progressIndeterminate = false;
-          _progress = 1;
-          _progressText = ok ? '环境自检通过' : '环境自检发现问题';
-          _currentVideo = ok ? '当前阶段：环境自检通过' : '当前阶段：环境自检发现问题';
-          _appendLog(
-            '环境自检：${ok ? '通过' : '未通过'}  '
-            'CUDA 设备：${event['cuda_device_count'] ?? 0}  '
-            '推荐：${event['device'] ?? '-'} / '
-            '${event['compute_type'] ?? '-'}',
+          _progress = passed ? 1 : 0;
+          _progressText = passed
+              ? s.stage('环境自检通过')
+              : transcriptionReady
+                  ? s.stage('环境自检发现问题')
+                  : s.modelUnavailable;
+          _currentVideo = s.stageOnly(
+            passed
+                ? '环境自检通过'
+                : transcriptionReady
+                    ? '环境自检发现问题'
+                    : '模型不可用',
           );
+          _appendLog(
+            s.runtimeCheckLog(passed, event['cuda_device_count'] ?? 0),
+          );
+          if (!transcriptionReady) {
+            _appendLog(
+              s.failure(
+                s.modelUnavailable,
+                modelError.isNotEmpty ? modelError : modelPath,
+              ),
+            );
+          }
           break;
         case 'model_download_done':
+          final name = (event['name'] ?? '').toString();
           _progressIndeterminate = false;
           _progress = 1;
-          _progressText = '模型下载完成';
-          _currentVideo = '完成：模型 ${event['name']}';
-          _appendLog('模型下载完成：${event['target']}');
+          _progressText = s.modelDownloadComplete;
+          _currentVideo = s.completedValue(s.modelName(name));
+          _appendLog(s.modelDownloadLog((event['target'] ?? '').toString()));
           break;
       }
     });
@@ -1124,9 +1360,23 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
       process.kill();
       setState(() {
         _progressIndeterminate = true;
-        _progressText = '正在停止';
+        _progressText = _s.stopping;
       });
     }
+  }
+
+  void _setLanguage(AppLanguage language) {
+    setState(() {
+      _language = language;
+      _config = Map<String, dynamic>.from(_config)
+        ..['ui_language'] = language.code;
+      appLanguageNotifier.value = language;
+      if (!_isBusy) {
+        _progressText = _s.waitingTask;
+        _currentVideo = _s.currentVideoDash;
+      }
+    });
+    _scheduleConfigSave();
   }
 
   void _showMessage(String message) {
@@ -1138,21 +1388,22 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 960;
-    const destinations = [
+    final s = _s;
+    final destinations = [
       NavigationRailDestination(
-        icon: Icon(Icons.subtitles_outlined),
-        selectedIcon: Icon(Icons.subtitles),
-        label: Text('转录'),
+        icon: const Icon(Icons.subtitles_outlined),
+        selectedIcon: const Icon(Icons.subtitles),
+        label: Text(s.navTranscribe),
       ),
       NavigationRailDestination(
-        icon: Icon(Icons.download_outlined),
-        selectedIcon: Icon(Icons.download),
-        label: Text('模型'),
+        icon: const Icon(Icons.download_outlined),
+        selectedIcon: const Icon(Icons.download),
+        label: Text(s.navModels),
       ),
       NavigationRailDestination(
-        icon: Icon(Icons.tune_outlined),
-        selectedIcon: Icon(Icons.tune),
-        label: Text('设置'),
+        icon: const Icon(Icons.tune_outlined),
+        selectedIcon: const Icon(Icons.tune),
+        label: Text(s.navSettings),
       ),
     ];
 
@@ -1192,7 +1443,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                     alignment: Alignment.bottomCenter,
                     child: _isBusy
                         ? Tooltip(
-                            message: '停止当前任务',
+                            message: s.stopCurrentTask,
                             child: IconButton.filledTonal(
                               onPressed: _stopProcess,
                               style: IconButton.styleFrom(
@@ -1203,7 +1454,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                             ),
                           )
                         : Tooltip(
-                            message: '当前没有任务',
+                            message: s.noCurrentTask,
                             child: Container(
                               width: 58,
                               height: 58,
@@ -1229,7 +1480,11 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
               child: Column(
                 children: [
                   _TopBar(
-                    title: ['转录工作台', '模型管理', '运行设置'][_pageIndex],
+                    title: [
+                      s.transcribeWorkbench,
+                      s.modelManagement,
+                      s.runtimeSettings,
+                    ][_pageIndex],
                     busy: _isBusy,
                     text: _progressText,
                   ),
@@ -1256,6 +1511,15 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   }
 
   Widget _buildTranscribePage() {
+    final s = _s;
+    final _VideoProgress? activeVideo = _videoProgresses.isEmpty
+        ? null
+        : _videoProgresses.lastWhere(
+            (video) => !video.isTerminal,
+            orElse: () => _videoProgresses.last,
+          );
+    final activeVideoHasTimeline =
+        activeVideo?.duration != null && activeVideo!.duration! > 0;
     return _PageBody(
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -1263,16 +1527,16 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           return ListView(
             children: [
               _SectionHeader(
-                title: '任务',
+                title: s.task,
                 action: TextButton.icon(
                   onPressed: _isBusy ? null : _saveConfig,
                   icon: const Icon(Icons.save_outlined),
-                  label: const Text('保存配置'),
+                  label: Text(s.saveConfig),
                 ),
               ),
               const SizedBox(height: 12),
               _PathField(
-                label: '视频根目录',
+                label: s.videoRoot,
                 controller: _sourceController,
                 icon: Icons.folder_open_outlined,
                 onPick:
@@ -1280,15 +1544,16 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
               ),
               const SizedBox(height: 12),
               _PathField(
-                label: '字幕输出目录',
+                label: s.subtitleOutput,
                 controller: _outputController,
                 icon: Icons.output_outlined,
                 onPick:
                     _isBusy ? null : () => _pickDirectory(_outputController),
+                requiredMessage: s.outputDirectoryRequired,
               ),
               const SizedBox(height: 12),
               _PathField(
-                label: '单个视频',
+                label: s.singleVideo,
                 controller: _singleFileController,
                 icon: Icons.movie_outlined,
                 onPick: _isBusy ? null : _pickVideo,
@@ -1307,18 +1572,18 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                     child: TextFormField(
                       controller: _limitController,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: '处理数量'),
+                      decoration: InputDecoration(labelText: s.processingLimit),
                     ),
                   ),
                   FilterChip(
-                    label: const Text('覆盖已有字幕'),
+                    label: Text(s.forceExisting),
                     selected: _force,
                     onSelected: _isBusy
                         ? null
                         : (value) => setState(() => _force = value),
                   ),
                   FilterChip(
-                    label: const Text('推送到源目录'),
+                    label: Text(s.pushToSource),
                     selected: _pushToSource,
                     onSelected: _isBusy
                         ? null
@@ -1334,30 +1599,70 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                   FilledButton.icon(
                     onPressed: _isBusy ? null : () => _runTranscription(),
                     icon: const Icon(Icons.play_arrow),
-                    label: const Text('批量转录'),
+                    label: Text(s.batchTranscribe),
                   ),
                   OutlinedButton.icon(
                     onPressed:
                         _isBusy ? null : () => _runTranscription(single: true),
                     icon: const Icon(Icons.play_circle_outline),
-                    label: const Text('转录单文件'),
+                    label: Text(s.singleTranscribe),
                   ),
                   OutlinedButton.icon(
                     onPressed:
                         _isBusy ? null : () => _runTranscription(repair: true),
                     icon: const Icon(Icons.auto_fix_high_outlined),
-                    label: const Text('修复已有字幕'),
+                    label: Text(s.repairSubtitles),
                   ),
                 ],
               ),
               const SizedBox(height: 30),
-              const _SectionHeader(title: '当前进度'),
+              _SectionHeader(title: s.currentProgress),
               const SizedBox(height: 10),
               Text(
                 _currentVideo,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleSmall,
+              ),
+              if (activeVideo != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  s.activeVideoProgress,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${s.videoItemLabel(activeVideo.index, activeVideo.total)}  ${activeVideo.isTerminal ? s.videoStatus(activeVideo.status) : s.stage(activeVideo.stage)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      activeVideoHasTimeline
+                          ? '${activeVideo.percent.toStringAsFixed(0)}%  ${s.videoPosition(activeVideo.current ?? 0, activeVideo.duration!)}'
+                          : s.calculatingProgress,
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                LinearProgressIndicator(
+                  minHeight: 7,
+                  borderRadius: BorderRadius.circular(999),
+                  value: activeVideoHasTimeline || activeVideo.isTerminal
+                      ? activeVideo.percent.clamp(0, 100).toDouble() / 100
+                      : null,
+                ),
+              ],
+              const SizedBox(height: 12),
+              Text(
+                s.batchProgress,
+                style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 8),
               LinearProgressIndicator(
@@ -1373,7 +1678,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      _progressText,
+                      _batchEstimateText(),
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
@@ -1384,14 +1689,22 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                     ),
                 ],
               ),
+              if (_videoProgresses.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                _VideoProgressPanel(
+                  videos: _videoProgresses,
+                  strings: s,
+                ),
+              ],
               const SizedBox(height: 30),
-              const _SectionHeader(title: '运行日志'),
+              _SectionHeader(title: s.runLog),
               const SizedBox(height: 10),
               SizedBox(
                 height: logHeight,
                 child: _LogPanel(
                   controller: _logScrollController,
                   lines: _logs,
+                  emptyText: s.waitingOutput,
                 ),
               ),
             ],
@@ -1402,11 +1715,12 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   }
 
   Widget _buildModelsPage() {
+    final s = _s;
     final backend = _backend;
     return _PageBody(
       child: ListView(
         children: [
-          const _SectionHeader(title: 'faster-whisper 模型'),
+          _SectionHeader(title: s.modelTitle),
           const SizedBox(height: 20),
           for (final entry in modelRepos.entries) ...[
             _ModelRow(
@@ -1414,6 +1728,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
               repo: entry.value,
               groupValue: _modelPreset,
               path: backend == null ? '' : _presetModelPath(backend, entry.key),
+              downloadLabel: s.download,
               onSelect: _isBusy
                   ? null
                   : () => unawaited(_selectModelPreset(entry.key)),
@@ -1428,10 +1743,10 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
             groupValue: _modelPreset,
             onChanged:
                 _isBusy ? null : (_) => unawaited(_selectCustomModelPreset()),
-            title: const Text('自定义模型目录'),
+            title: Text(s.customModelDirectory),
           ),
           _PathField(
-            label: '自定义模型目录',
+            label: s.customModelDirectory,
             controller: _modelController,
             icon: Icons.folder_special_outlined,
             onPick: _isBusy
@@ -1445,8 +1760,8 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           const SizedBox(height: 12),
           Text(
             _modelPreset == customModelPreset
-                ? '已选模型：自定义目录'
-                : '已选模型：$_modelPreset',
+                ? s.selectedCustomModel
+                : s.selectedModel(_modelPreset),
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -1455,29 +1770,54 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
   }
 
   Widget _buildSettingsPage() {
+    final s = _s;
     return _PageBody(
       child: ListView(
         children: [
+          _SectionHeader(title: s.interfaceSettings),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<AppLanguage>(
+            value: _language,
+            decoration: InputDecoration(labelText: s.interfaceLanguage),
+            items: [
+              DropdownMenuItem(
+                value: AppLanguage.chinese,
+                child: Text(s.simplifiedChinese),
+              ),
+              DropdownMenuItem(
+                value: AppLanguage.english,
+                child: Text(s.english),
+              ),
+            ],
+            onChanged: _isBusy
+                ? null
+                : (value) {
+                    if (value != null) {
+                      _setLanguage(value);
+                    }
+                  },
+          ),
+          const SizedBox(height: 28),
           _SectionHeader(
-            title: '硬件与缓存',
+            title: s.hardwareAndCache,
             action: OutlinedButton.icon(
               onPressed: _isBusy ? null : _checkRuntime,
               icon: const Icon(Icons.health_and_safety_outlined),
-              label: const Text('环境自检'),
+              label: Text(s.environmentCheck),
             ),
           ),
           const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, constraints) {
               final wide = constraints.maxWidth > 680;
-              final fields = [
+              final List<Widget> fields = [
                 DropdownButtonFormField<String>(
                   value: _device,
-                  decoration: const InputDecoration(labelText: '运行设备'),
-                  items: const [
-                    DropdownMenuItem(value: 'auto', child: Text('自动选择')),
-                    DropdownMenuItem(value: 'cuda', child: Text('CUDA')),
-                    DropdownMenuItem(value: 'cpu', child: Text('CPU')),
+                  decoration: InputDecoration(labelText: s.runtimeDevice),
+                  items: [
+                    DropdownMenuItem(value: 'auto', child: Text(s.automatic)),
+                    const DropdownMenuItem(value: 'cuda', child: Text('CUDA')),
+                    const DropdownMenuItem(value: 'cpu', child: Text('CPU')),
                   ],
                   onChanged: _isBusy
                       ? null
@@ -1485,16 +1825,25 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                 ),
                 DropdownButtonFormField<String>(
                   value: _computeType,
-                  decoration: const InputDecoration(labelText: '计算精度'),
-                  items: const [
-                    DropdownMenuItem(value: 'default', child: Text('默认')),
-                    DropdownMenuItem(value: 'float16', child: Text('float16')),
+                  decoration: InputDecoration(labelText: s.computeType),
+                  items: [
                     DropdownMenuItem(
+                      value: 'default',
+                      child: Text(s.defaultValue),
+                    ),
+                    const DropdownMenuItem(
+                      value: 'float16',
+                      child: Text('float16'),
+                    ),
+                    const DropdownMenuItem(
                       value: 'int8_float16',
                       child: Text('int8_float16'),
                     ),
-                    DropdownMenuItem(value: 'int8', child: Text('int8')),
-                    DropdownMenuItem(value: 'float32', child: Text('float32')),
+                    const DropdownMenuItem(value: 'int8', child: Text('int8')),
+                    const DropdownMenuItem(
+                      value: 'float32',
+                      child: Text('float32'),
+                    ),
                   ],
                   onChanged: _isBusy
                       ? null
@@ -1521,7 +1870,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           ),
           const SizedBox(height: 12),
           _PathField(
-            label: '本地视频缓存目录',
+            label: s.localVideoCache,
             controller: _cacheController,
             icon: Icons.storage_outlined,
             onPick: _isBusy ? null : () => _pickDirectory(_cacheController),
@@ -1529,7 +1878,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           const SizedBox(height: 6),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('使用本地视频缓存'),
+            title: Text(s.useLocalCache),
             value: _useLocalCache,
             onChanged: _isBusy
                 ? null
@@ -1537,7 +1886,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('任务完成后删除缓存'),
+            title: Text(s.deleteCache),
             value: _deleteCache,
             onChanged: _isBusy
                 ? null
@@ -1545,7 +1894,7 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('输出时保留视频根目录名'),
+            title: Text(s.preserveRoot),
             value: _preserveRoot,
             onChanged: _isBusy
                 ? null
@@ -1555,31 +1904,33 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                '后端包：${_manifest['backend_mode'] ?? '-'} / '
-                '${_manifest['package_profile'] ?? '-'}',
+                s.backendPackage(
+                  '${_manifest['backend_mode'] ?? '-'}',
+                  '${_manifest['package_profile'] ?? '-'}',
+                ),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
               ),
             ),
           const SizedBox(height: 28),
-          const _SectionHeader(title: '模型下载'),
+          _SectionHeader(title: s.modelDownload),
           const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, constraints) {
               final wide = constraints.maxWidth > 680;
-              final fields = [
+              final List<Widget> fields = [
                 TextFormField(
                   controller: _httpProxyController,
-                  decoration: const InputDecoration(labelText: 'HTTP 代理'),
+                  decoration: InputDecoration(labelText: s.httpProxy),
                 ),
                 TextFormField(
                   controller: _httpsProxyController,
-                  decoration: const InputDecoration(labelText: 'HTTPS 代理'),
+                  decoration: InputDecoration(labelText: s.httpsProxy),
                 ),
                 TextFormField(
                   controller: _hfEndpointController,
-                  decoration: const InputDecoration(labelText: 'HF Endpoint'),
+                  decoration: InputDecoration(labelText: s.hfEndpoint),
                 ),
               ];
               if (!wide) {
@@ -1609,29 +1960,33 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
             },
           ),
           const SizedBox(height: 28),
-          const _SectionHeader(title: '断句'),
+          _SectionHeader(title: s.sentenceBreaking),
           const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, constraints) {
               final wide = constraints.maxWidth > 680;
-              final fields = [
+              final List<Widget> fields = [
                 _NumberField(
-                  label: '单行字数',
+                  label: s.lineChars,
                   controller: _lineCharsController,
                   integer: true,
+                  invalidMessage: s.validNumberRequired,
                 ),
                 _NumberField(
-                  label: '单条字数',
+                  label: s.sentenceChars,
                   controller: _sentenceCharsController,
                   integer: true,
+                  invalidMessage: s.validNumberRequired,
                 ),
                 _NumberField(
-                  label: '单条秒数',
+                  label: s.sentenceDuration,
                   controller: _sentenceDurationController,
+                  invalidMessage: s.validNumberRequired,
                 ),
                 _NumberField(
-                  label: '停顿阈值（秒）',
+                  label: s.gapThreshold,
                   controller: _gapController,
+                  invalidMessage: s.validNumberRequired,
                 ),
               ];
               return GridView.count(
@@ -1654,17 +2009,157 @@ class _WorkbenchScreenState extends State<WorkbenchScreen> {
                   : () async {
                       try {
                         await _saveConfig();
-                        _showMessage('配置已保存');
+                        _showMessage(s.configSaved);
                       } catch (error) {
                         _showMessage('$error');
                       }
                     },
               icon: const Icon(Icons.save_outlined),
-              label: const Text('保存设置'),
+              label: Text(s.saveSettings),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _VideoProgress {
+  _VideoProgress({
+    required this.index,
+    required this.total,
+    required this.name,
+    required this.stage,
+    required this.percent,
+    required this.status,
+    this.current,
+    this.duration,
+  });
+
+  final int index;
+  int total;
+  String name;
+  String stage;
+  double percent;
+  String status;
+  double? current;
+  double? duration;
+
+  bool get isTerminal => status == 'ok' || status == 'skip' || status == 'fail';
+}
+
+class _VideoProgressPanel extends StatelessWidget {
+  const _VideoProgressPanel({
+    required this.videos,
+    required this.strings,
+  });
+
+  final List<_VideoProgress> videos;
+  final AppStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = videos.fold<int>(
+      0,
+      (maxTotal, video) => video.total > maxTotal ? video.total : maxTotal,
+    );
+    final completed = videos.where((video) => video.isTerminal).length;
+    final visibleTotal = total > 0 ? total : videos.length;
+    final height = videos.length > 3 ? 252.0 : videos.length * 84.0;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return ExpansionTile(
+      initiallyExpanded: false,
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: EdgeInsets.zero,
+      title: Text(strings.videoProgressSummary(completed, visibleTotal)),
+      subtitle: Text(
+        strings.videoProgressHint,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      children: [
+        SizedBox(
+          height: height,
+          child: ListView.separated(
+            primary: false,
+            itemCount: videos.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final video = videos[index];
+              final IconData icon;
+              final Color iconColor;
+              switch (video.status) {
+                case 'ok':
+                  icon = Icons.check_circle_outline;
+                  iconColor = colorScheme.primary;
+                  break;
+                case 'skip':
+                  icon = Icons.skip_next_outlined;
+                  iconColor = colorScheme.secondary;
+                  break;
+                case 'fail':
+                  icon = Icons.error_outline;
+                  iconColor = colorScheme.error;
+                  break;
+                default:
+                  icon = Icons.play_circle_outline;
+                  iconColor = colorScheme.tertiary;
+              }
+              final position = video.current != null && video.duration != null
+                  ? '  ${strings.videoPosition(video.current!, video.duration!)}'
+                  : '';
+              final hasTimeline = video.duration != null && video.duration! > 0;
+              final progressValue =
+                  video.isTerminal || hasTimeline || video.percent > 0
+                      ? video.percent.clamp(0, 100).toDouble() / 100
+                      : null;
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(icon, color: iconColor),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            video.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${strings.videoItemLabel(video.index, video.total)}  '
+                            '${video.isTerminal ? strings.videoStatus(video.status) : strings.stage(video.stage)}$position',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 7),
+                          LinearProgressIndicator(
+                            value: progressValue,
+                            minHeight: 5,
+                            color: iconColor,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      '${video.percent.toStringAsFixed(0)}%',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1763,14 +2258,60 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
+class _ProcessLineCollector {
+  _ProcessLineCollector(this.onLine);
+
+  final void Function(String line) onLine;
+  final List<int> _buffer = [];
+
+  void add(List<int> chunk) {
+    for (final byte in chunk) {
+      if (byte == 10) {
+        _flush();
+      } else {
+        _buffer.add(byte);
+      }
+    }
+  }
+
+  void close() {
+    if (_buffer.isNotEmpty) {
+      _flush();
+    }
+  }
+
+  void _flush() {
+    final bytes = List<int>.from(_buffer);
+    _buffer.clear();
+    if (bytes.isNotEmpty && bytes.last == 13) {
+      bytes.removeLast();
+    }
+    onLine(_decodeLine(bytes));
+  }
+
+  String _decodeLine(List<int> bytes) {
+    try {
+      return utf8.decode(bytes, allowMalformed: false);
+    } catch (_) {
+      try {
+        return systemEncoding.decode(bytes);
+      } catch (_) {
+        return utf8.decode(bytes, allowMalformed: true);
+      }
+    }
+  }
+}
+
 class _LogPanel extends StatelessWidget {
   const _LogPanel({
     required this.controller,
     required this.lines,
+    required this.emptyText,
   });
 
   final ScrollController controller;
   final List<String> lines;
+  final String emptyText;
 
   @override
   Widget build(BuildContext context) {
@@ -1790,7 +2331,7 @@ class _LogPanel extends StatelessWidget {
           child: Align(
             alignment: Alignment.topLeft,
             child: SelectableText(
-              lines.isEmpty ? '等待任务输出' : lines.join('\n'),
+              lines.isEmpty ? emptyText : lines.join('\n'),
               style: textStyle,
             ),
           ),
@@ -1808,6 +2349,7 @@ class _PathField extends StatelessWidget {
     required this.onPick,
     this.onClear,
     this.onChanged,
+    this.requiredMessage,
   });
 
   final String label;
@@ -1816,9 +2358,11 @@ class _PathField extends StatelessWidget {
   final VoidCallback? onPick;
   final VoidCallback? onClear;
   final ValueChanged<String>? onChanged;
+  final String? requiredMessage;
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppStrings(appLanguageNotifier.value);
     return TextFormField(
       controller: controller,
       minLines: 1,
@@ -1831,7 +2375,7 @@ class _PathField extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Tooltip(
-              message: '选择$label',
+              message: strings.choose(label),
               child: IconButton(
                 onPressed: onPick,
                 icon: const Icon(Icons.folder_open_outlined),
@@ -1839,7 +2383,7 @@ class _PathField extends StatelessWidget {
             ),
             if (onClear != null)
               Tooltip(
-                message: '清空$label',
+                message: strings.clear(label),
                 child: IconButton(
                   onPressed: onClear,
                   icon: const Icon(Icons.clear),
@@ -1849,8 +2393,9 @@ class _PathField extends StatelessWidget {
         ),
       ),
       validator: (value) {
-        if (label == '字幕输出目录' && (value == null || value.trim().isEmpty)) {
-          return '请输入输出目录';
+        if (requiredMessage != null &&
+            (value == null || value.trim().isEmpty)) {
+          return requiredMessage;
         }
         return null;
       },
@@ -1863,11 +2408,13 @@ class _NumberField extends StatelessWidget {
     required this.label,
     required this.controller,
     this.integer = false,
+    required this.invalidMessage,
   });
 
   final String label;
   final TextEditingController controller;
   final bool integer;
+  final String invalidMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -1878,7 +2425,7 @@ class _NumberField extends StatelessWidget {
       validator: (value) {
         final raw = value?.trim() ?? '';
         final number = integer ? int.tryParse(raw) : double.tryParse(raw);
-        return number == null ? '请输入有效数值' : null;
+        return number == null ? invalidMessage : null;
       },
     );
   }
@@ -1892,6 +2439,7 @@ class _ModelRow extends StatelessWidget {
     required this.groupValue,
     required this.onSelect,
     required this.onDownload,
+    required this.downloadLabel,
   });
 
   final String name;
@@ -1900,6 +2448,7 @@ class _ModelRow extends StatelessWidget {
   final String groupValue;
   final VoidCallback? onSelect;
   final VoidCallback? onDownload;
+  final String downloadLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -1944,7 +2493,7 @@ class _ModelRow extends StatelessWidget {
           FilledButton.tonalIcon(
             onPressed: onDownload,
             icon: const Icon(Icons.download_outlined),
-            label: const Text('下载'),
+            label: Text(downloadLabel),
           ),
         ],
       ),

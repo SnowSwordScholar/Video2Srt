@@ -18,6 +18,7 @@
   "use_local_cache": true,
   "delete_cache_after": true,
   "push_to_source": false,
+  "ui_language": "zh-CN",
   "device": "auto",
   "compute_type": "default",
   "http_proxy": "",

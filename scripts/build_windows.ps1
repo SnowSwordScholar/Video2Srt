@@ -4,7 +4,7 @@ param(
     [string]$BackendMode = "pyinstaller",
 
     [ValidateSet("cpu", "cuda", "auto")]
-    [string]$PackageProfile = "cpu",
+    [string]$PackageProfile = "auto",
 
     [string]$RuntimePath = "",
 
@@ -107,8 +107,8 @@ function Write-BackendManifest {
         git_commit = $gitCommit
         created_at_utc = (Get-Date).ToUniversalTime().ToString("o")
         notes = @(
-            "The cpu profile is the default public package target.",
-            "The cuda profile records intent only; CUDA support still depends on the build environment dependencies and the target machine NVIDIA runtime.",
+            "The auto profile selects CUDA when it is available, otherwise CPU.",
+            "CUDA support still depends on the packaged dependencies and the target machine NVIDIA runtime.",
             "Models are intentionally excluded unless IncludeModels is set."
         )
     }
