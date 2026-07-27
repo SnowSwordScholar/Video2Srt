@@ -1,166 +1,88 @@
-# Video2Srt
+<p align="center">
+  <img src="images/app_icon.png" width="100" alt="Video2Srt Logo">
+</p>
 
-本地批量转录视频并生成中文字幕 SRT 的 Windows 工具。后端使用
-`faster-whisper`，桌面端使用 Flutter Material 3。
+<h1 align="center">Video2Srt</h1>
 
-## 功能
+<p align="center">
+  一款面向 Windows 的纯本地、支持批量的音视频转录与 SRT 字幕生成工具
+</p>
 
-- 批量转录、单文件转录、已有 SRT 修复。
-- 直接下载 `large-v2` 与 `large-v3` 的 faster-whisper 模型。
-- 每个视频都有转录进度，日志以 UTF-8 输出。
-- 输出时保留视频根目录名，方便把字幕目录合并回原课程目录。
-- 支持本地视频缓存、失败重试、跳过已完成字幕和可选的源目录回写。
-- `device: auto` 会优先使用可用的 CUDA；没有 CUDA 或 CUDA 初始化失败时自动使用 CPU。
+<p align="center">
+  <!-- 建议根据实际情况替换以下徽章的链接 -->
+  <a href="https://flutter.dev/"><img src="https://img.shields.io/badge/Flutter-Material_3-02569B?logo=flutter" alt="Flutter"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10+-3776AB?logo=python" alt="Python"></a>
+  <a href="https://github.com/SYSTRAN/faster-whisper"><img src="https://img.shields.io/badge/Backend-faster--whisper-brightgreen" alt="faster-whisper"></a>
+  <a href="https://github.com/your-username/Video2Srt/releases"><img src="https://img.shields.io/github/v/release/your-username/Video2Srt" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/your-username/Video2Srt" alt="License"></a>
+</p>
 
-## 快速开始
+<p align="center">
+  <img src="images/zh-cn/转录.png" alt="Video2Srt 转录工作台" width="90%" style="border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+</p>
 
-需要 Windows、Python 3.10+。CUDA 不是必需条件。
+## 📖 项目概览
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-Copy-Item config.example.json config.json
+**Video2Srt** 旨在为用户提供开箱即用、安全高效的本地字幕生成体验。它采用前后端分离的设计：以 Flutter (Material 3) 构建优雅流畅的 Windows 桌面操作入口，以 Python 和 `faster-whisper` 作为硬核转录引擎。
+
+**🛡️ 隐私优先，完全离线**：本项目不依赖任何云端 API 转录服务。您的所有视频、音频、模型、缓存以及运行日志均由本地环境严格管理，无需网络即可顺畅运行，彻底杜绝数据泄露风险。
+
+## ✨ 核心特性
+
+- **🚀 高效转录工作台**
+  支持多任务批量转录与单文件精准转录。实时展示单视频处理进度及批量任务的预计剩余时间，支持跳过已有字幕、覆盖重跑、以及已有字幕的智能修复与重组。
+- **🤖 灵活的模型管理**
+  内置模型下载器，支持一键获取 `large-v2` / `large-v3` 等主流模型；同时允许高级用户挂载自定义的 `faster-whisper` 模型目录。
+- **⚡ 智能硬件加速**
+  自动化运行策略：优先检测并启用 CUDA (GPU) 加速；当环境不可用时，无缝回落至 CPU `int8` 模式，保证在绝大多数 Windows 设备上都能稳定运行。
+- **📁 完善的文件处理机制**
+  支持自动本地缓存管理，提供“字幕推送回源视频目录”等贴心功能，让输出结果直接与源文件对齐，免去手动整理的烦恼。
+- **📦 极简的发布形态**
+  通过 PyInstaller 打包后端引擎，并使用 Inno Setup 构建为免环境配置的 Windows 安装包 (`.exe`)。小白用户也能一键安装，即刻使用。
+
+## 📸 界面预览
+
+| 模型管理模块 | 运行设置模块 |
+| :---: | :---: |
+| <img src="images/zh-cn/模型.png" alt="模型管理" width="100%"> | <img src="images/zh-cn/设置.png" alt="运行设置" width="100%"> |
+| *一键下载或管理本地转录模型* | *灵活配置计算设备与转录参数* |
+
+## 🛠️ 技术栈
+
+**前端 (UI)**
+- [Flutter](https://flutter.dev/) - 跨平台高性能 UI 框架
+- Material 3 Design - 现代化的视觉设计规范
+
+**后端 (AI & 逻辑)**
+- Python 3.10+
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) & [CTranslate2](https://github.com/OpenNMT/CTranslate2) - 核心语音识别与推理引擎
+
+**构建与分发**
+- PyInstaller - Python 环境独立打包
+- Inno Setup - Windows 安装包制作
+
+## 📂 项目结构
+
+```text
+Video2Srt/
+├─ flutter_app/          # Flutter Material 3 桌面端源码
+├─ transcribe.py         # faster-whisper 转录、字幕重组与进度通信脚本
+├─ config.example.json   # 默认应用配置模板
+├─ scripts/              # Windows 环境打包与构建脚本
+├─ docs/                 # 项目发布、打包与二次开发说明
+└─ images/               # README 配图与应用图标资源
 ```
 
-编辑 `config.json`，至少设置 `src_root`。所有相对路径都相对于配置文件所在目录。
+## 🚀 快速开始
 
-下载模型：
+### 针对普通用户 (直接使用)
+1. 前往 [Releases 页面](https://github.com/SnowSwordScholar/Video2Srt/releases) 下载最新版本的 `Video2Srt-Installer.exe`。
+2. 双击安装后，打开软件。
+3. 在“模型管理”中下载或指定模型库，即可开始批量转换你的视频文件！
 
-```powershell
-.\.venv\Scripts\python.exe transcribe.py --download-model large-v3
-```
+### 针对开发者 (本地编译)
+详细的本地环境搭建、前后端通信协议以及打包流程，请参阅 [开发与构建文档](/docs/PACKAGING.md)。
 
-开始批量转录：
+## 📄 许可证
 
-```powershell
-.\.venv\Scripts\python.exe transcribe.py
-```
-
-常用命令：
-
-```powershell
-# 单文件
-.\.venv\Scripts\python.exe transcribe.py --file "D:\Videos\lesson.mp4"
-
-# 只处理前 3 个
-.\.venv\Scripts\python.exe transcribe.py --limit 3
-
-# 覆盖已有字幕
-.\.venv\Scripts\python.exe transcribe.py --force
-
-# 把完成的字幕同步到源视频所在目录
-.\.venv\Scripts\python.exe transcribe.py --push-source
-
-# 只修复已有 SRT 的时间轴、重复片段和换行
-.\.venv\Scripts\python.exe transcribe.py --repair-existing
-```
-
-## 桌面 GUI
-
-推荐使用新的 Flutter 桌面程序：
-
-```powershell
-Set-Location flutter_app
-flutter pub get
-flutter run -d windows
-```
-
-它会自动找到项目根目录下的 Python 后端。GUI 可以选择视频、输出、模型和缓存目录，管理模型下载，并调整硬件与断句参数。
-
-旧的 Tkinter GUI 仍可通过 `.\.venv\Scripts\python.exe gui.py` 启动，但不再是主界面。
-
-## CPU 与 CUDA
-
-默认配置使用：
-
-```json
-{
-  "device": "auto",
-  "compute_type": "default"
-}
-```
-
-- `auto`：检测到 CUDA 时使用 `cuda + float16`；否则使用 `cpu + int8`。
-- `cuda`：只使用 CUDA，适合已确认驱动和运行库正常的机器。
-- `cpu`：强制使用 CPU。`int8` 是大模型在 CPU 上更实用的默认精度。
-- CUDA 在自动模式下初始化失败时，后端会记录原因并自动回落到 CPU `int8`。
-
-CPU 可以正常运行，但 `large-v3` 对长视频会明显更慢；可按机器性能改用 `large-v2`。
-
-## 配置
-
-`config.example.json` 是可提交的模板，实际使用的 `config.json` 不会进入 Git。
-
-常用项：
-
-- `src_root`：视频根目录，留空表示尚未选择。
-- `dst_root`：字幕输出目录，默认 `output`。
-- `model_base`：模型目录，默认 `models/large-v3`。
-- `preserve_source_root_name`：默认 `true`，保留源目录最外层名称。
-- `use_local_cache`：先复制视频到本地缓存后转录，适合网络盘或 WebDAV。
-- `push_to_source`：默认 `false`，开启后把完成的字幕同步到源视频所在目录。
-- `max_chars_per_line`、`max_chars_per_sentence`、`max_sentence_duration`、`gap_threshold`：控制字幕长度和断句。
-- `http_proxy`、`https_proxy`：模型下载使用的代理地址，例如 `http://127.0.0.1:7890`。
-- `hf_endpoint`：可选的 Hugging Face endpoint / 镜像地址。
-
-重新生成模板配置：
-
-```powershell
-.\.venv\Scripts\python.exe transcribe.py --write-default-config
-```
-
-检查当前后端依赖、模型和 CPU/CUDA 选择：
-
-```powershell
-.\.venv\Scripts\python.exe transcribe.py --check-runtime
-```
-
-## Windows 发布包
-
-发布脚本会先构建 Flutter，再把后端放入 `dist\Video2Srt\backend`。模型默认不随包分发，用户可以在 GUI 的“模型”页下载。
-
-默认会构建不依赖目标机器 Python 的 PyInstaller 发布包，并把发布意图写入
-`backend\backend_manifest.json`：
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\scripts\build_windows.ps1
-```
-
-推荐公开发布先使用默认的 `-PackageProfile cpu`。它仍会在用户机器上按配置执行
-`device: auto`：能用 CUDA 时尝试 CUDA，不能用时回到 CPU `int8`。
-
-如果要发布面向 CUDA 的包，可以标记：
-
-```powershell
-.\scripts\build_windows.ps1 -PackageProfile cuda
-```
-
-这个标记只记录发布意图；实际 CUDA 能力取决于打包环境中安装的
-`ctranslate2`/相关运行库，以及目标机器的 NVIDIA 驱动和 CUDA 运行库。
-
-如需生成源码后端的便携包，可显式选择 `source` 模式；它会调用随包 runtime 或系统 Python：
-
-```powershell
-.\scripts\build_windows.ps1 -BackendMode source
-```
-
-也可以把一个可重定位的 Python runtime 目录放进源码后端包：
-
-```powershell
-.\scripts\build_windows.ps1 -RuntimePath "D:\runtime\python"
-```
-
-`RuntimePath` 可以是带 `python.exe` 的便携 Python，也可以是包含
-`Scripts\python.exe` 的虚拟环境目录。真正对外分发时更推荐 PyInstaller 或可重定位的
-Python runtime；普通 venv 在不同机器上未必完全可移植。
-
-`-IncludeModels` 会把本地 `models` 目录一起复制到发布包；默认关闭，避免意外打入体积很大的模型文件。
-
-更完整的发布说明见 [docs/PACKAGING.md](docs/PACKAGING.md)。
-
-## Git 与隐私
-
-`.gitignore` 已排除本地配置、日志、缓存、模型、输出字幕和发布产物。不要提交真实视频、模型或生成的 SRT。
-
-发布到公开仓库前还需要由项目所有者选择并添加合适的开源许可证。由于早期本地提交可能包含真实路径或生成字幕，公开发布建议从当前干净工作树创建一个新的首个提交，或在发布前重写历史。
+本项目采用 [GNU License](LICENSE) 开源协议。欢迎提交 Pull Request 或发起 Issue 交流！
